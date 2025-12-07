@@ -1,4 +1,4 @@
-# macOS Support for PyStack - PoC Plan
+#Add macOS Support for PyStack - PoC Plan
 
 ## Objective
 Add PoC macOS arm64 support for live process analysis with basic Python stack traces.
@@ -28,20 +28,20 @@ No external deps required.
 
 ## Implementation Phases
 
-Phase 0: Platform Abstraction Refactoring (RESEARCH NEEDED)
-- Research current Linux-specific code organization
-- Design platform abstraction layer architecture
-- Plan refactoring strategy to extract platform-specific code
-- Define abstract interfaces for:
-  - Memory access operations
-  - Process control/attachment
-  - Thread enumeration
-  - Memory map discovery
-  - Binary format handling
-- Create detailed refactoring plan that minimizes disruption to existing Linux code
-- Ensure backward compatibility and no regression in Linux functionality
+Phase 0: Multi-Platform Abstraction Layer
+- **Objective**: Decouple Linux-specific implementations from the core analysis engine to enable support for macOS, Windows, and other future platforms.
+- **Architectural Goals**:
+  - Define a strictly typed `PlatformProcess` interface in C++ (`src/pystack/_pystack/platform/api.h`).
+  - Abstract memory access (remote read/write) into a `PlatformMemory` interface.
+  - Abstract thread enumeration into a `PlatformTracer` interface.
+  - Decouple ELF/binary parsing from proper memory map interfaces.
+- **Implementation Steps**:
+  - Create `src/pystack/_pystack/platform/` directory structure.
+  - Move Linux-specific code (ptrace, procfs parsing, process_vm_readv) to `src/pystack/_pystack/platform/linux/`.
+  - Introduce compile-time platform selection in build system (CMake/setup.py).
+  - Refactor `maps.py` to support pluggable map map parsers (e.g., `/proc` vs Mach APIs).
+- **Outcome**: The codebase compiles on macOS with stubbed interfaces, identifying exactly where platform-specific implementations must be injected.
 
-NOTE: This is a prerequisite research and planning phase. Must be completed before implementing macOS support.
 
 Phase 1: Memory Access
 - Create src/pystack/_pystack/platform/darwin_platform.cpp
