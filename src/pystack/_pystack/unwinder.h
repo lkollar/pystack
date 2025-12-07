@@ -8,9 +8,21 @@
 #include <utility>
 #include <vector>
 
-#include "elf_common.h"
+#ifdef __linux__
+#    include "elf_common.h"
+#endif
+
 #include "mem.h"
 #include "native_frame.h"
+
+#ifndef __linux__
+// Type definitions for non-Linux platforms (e.g. macOS)
+using Dwarf_Addr = uint64_t;
+using Dwarf_Word = uint64_t;
+using Dwarf_Die = void;
+using Dwfl_Module = void;
+using Dwfl = void;
+#endif
 
 namespace pystack {
 
@@ -18,7 +30,7 @@ class UnwinderError : public std::exception
 {
   public:
     explicit UnwinderError(std::string error)
-    : d_error(std::move(error)){};
+    : d_error(std::move(error)) {};
 
     [[nodiscard]] const char* what() const noexcept override
     {
@@ -80,6 +92,8 @@ class ModuleCuDieRanges
     // Data members
     std::unordered_map<Dwfl_Module*, CuDieRanges> d_die_range_maps;
 };
+
+#ifdef __linux__
 
 class AbstractUnwinder
 {
@@ -162,4 +176,34 @@ class CoreFileUnwinder : public AbstractUnwinder
     // Data members
     std::shared_ptr<CoreFileAnalyzer> d_analyzer;
 };
+
+#else
+
+// Stub for macOS/Non-Linux
+class AbstractUnwinder
+{
+  public:
+    virtual ~AbstractUnwinder() = default;
+    virtual remote_addr_t
+    getAddressforSymbol(const std::string& symbol, const std::string& modulename) const
+    {
+        return 0;
+    }
+    virtual std::vector<NativeFrame> unwindThread(pid_t tid) const = 0;
+};
+
+class Unwinder : public AbstractUnwinder
+{
+  public:
+    explicit Unwinder(std::shared_ptr<ProcessAnalyzer> analyzer)
+    {
+    }
+    std::vector<NativeFrame> unwindThread(pid_t tid) const override
+    {
+        return {};
+    }
+};
+
+#endif
+
 }  // namespace pystack

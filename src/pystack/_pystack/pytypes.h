@@ -5,11 +5,13 @@
 #include <variant>
 #include <vector>
 
-#include "mem.h"
-#include "process.h"
-#include "structure.h"
+#include "version.h"
 
 namespace pystack {
+
+class AbstractProcessManager;
+template<typename OffsetsStruct>
+class Structure;
 
 std::string
 addrToString(const std::shared_ptr<const AbstractProcessManager>& manager, remote_addr_t addr);

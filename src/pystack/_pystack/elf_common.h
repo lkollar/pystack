@@ -9,10 +9,16 @@
 #include <unistd.h>
 
 #include "logging.h"
-#include <elf.h>
-#include <elfutils/libdwelf.h>
-#include <elfutils/libdwfl.h>
-#include <gelf.h>
+
+#ifdef __linux__
+#    include <elf.h>
+#    include <elfutils/libdwelf.h>
+#    include <elfutils/libdwfl.h>
+#    include <gelf.h>
+#else
+// Stub types for non-Linux
+using pid_t = int;
+#endif
 
 namespace pystack {
 
@@ -23,7 +29,7 @@ class ElfAnalyzerError : public std::exception
 {
   public:
     explicit ElfAnalyzerError(std::string error)
-    : d_error(std::move(error)){};
+    : d_error(std::move(error)) {};
 
     const char* what() const noexcept override
     {
@@ -34,6 +40,7 @@ class ElfAnalyzerError : public std::exception
     std::string d_error;
 };
 
+#ifdef __linux__
 // Aliases
 using dwfl_unique_ptr = std::unique_ptr<Dwfl, std::function<void(Dwfl*)>>;
 using elf_unique_ptr = std::unique_ptr<Elf, std::function<void(Elf*)>>;
@@ -132,5 +139,48 @@ buildIdPtrToString(const uint8_t* id, ssize_t size);
 
 std::string
 getBuildId(const std::string& filename);
+
+#else
+// Stubs for non-Linux platforms
+
+class Analyzer
+{
+  public:
+    virtual ~Analyzer() = default;
+};
+
+class ProcessAnalyzer : public Analyzer
+{
+  public:
+    explicit ProcessAnalyzer(pid_t pid)
+    {
+    }
+};
+
+class CoreFileAnalyzer : public Analyzer
+{
+  public:
+    explicit CoreFileAnalyzer(std::string corefile)
+    {
+    }
+};
+
+struct SectionInfo
+{
+    std::string name;
+    std::string flags;
+    uintptr_t addr;
+    uintptr_t corrected_addr;
+    off_t offset;
+    size_t size;
+};
+
+inline bool
+getSectionInfo(const std::string& filename, const std::string& section_name, SectionInfo* result)
+{
+    return false;
+}
+
+#endif
 
 }  // namespace pystack

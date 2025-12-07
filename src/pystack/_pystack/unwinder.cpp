@@ -7,13 +7,15 @@
 #include <unistd.h>
 #include <utility>
 
-#include <dwarf.h>
+#ifdef __linux__
 
-#include "elf_common.h"
-#include "logging.h"
-#include "mem.h"
-#include "native_frame.h"
-#include "unwinder.h"
+#    include <dwarf.h>
+
+#    include "elf_common.h"
+#    include "logging.h"
+#    include "mem.h"
+#    include "native_frame.h"
+#    include "unwinder.h"
 
 namespace pystack {
 ModuleCuDieRanges::CuDieRanges::CuDieRanges(Dwfl_Module* mod)
@@ -105,20 +107,20 @@ frameCallback(Dwfl_Frame* state, void* arg)
     // work around is to install PyStack using the same interpreter they want
     // to get stacks for, or to build with a more recent version of elfutils.
 
-#if _ELFUTILS_VERSION >= 188 or (defined(__linux__) && !defined(__GLIBC__))
+#    if _ELFUTILS_VERSION >= 188 or (defined(__linux__) && !defined(__GLIBC__))
 
     // These platform specific magic numbers are part of the platform ABI.
     // For any platform not handled below we never look up the value of the
     // stack pointer register, and so never return DWARF_CB_ABORT.
     std::optional<unsigned int> stackPointerRegNo;
-#    if defined(__x86_64__)
+#        if defined(__x86_64__)
     // https://refspecs.linuxbase.org/elf/x86_64-abi-0.99.pdf
     // Figure 3.36: DWARF Register Number Mapping
     stackPointerRegNo = 7;
-#    elif defined(__aarch64__)
+#        elif defined(__aarch64__)
     // https://refspecs.linuxfoundation.org/ELF/ppc64/PPC-elf64abi.html#DW-REG
     stackPointerRegNo = 31;
-#    endif
+#        endif
 
     if (stackPointerRegNo) {
         stackPointer.emplace(0);
@@ -133,7 +135,7 @@ frameCallback(Dwfl_Frame* state, void* arg)
         LOG(DEBUG) << std::hex << std::showbase << "Breaking out of (infinite?) unwind loop @ " << pc;
         return DWARF_CB_ABORT;
     }
-#endif
+#    endif
 
     frames->emplace_back(pc, isActivation, stackPointer);
     return DWARF_CB_OK;
@@ -555,3 +557,5 @@ CoreFileUnwinder::Dwfl() const
     return d_analyzer->d_dwfl.get();
 }
 }  // namespace pystack
+
+#endif

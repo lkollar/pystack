@@ -17,18 +17,22 @@ from typing import TypeVar
 from cython.operator import dereference
 from cython.operator import postincrement
 
-from _pystack.corefile cimport CoreFileExtractor
-from _pystack.elf_common cimport CoreFileAnalyzer as NativeCoreFileAnalyzer
+IF UNAME_SYSNAME == "Linux":
+    from _pystack.corefile cimport CoreFileExtractor
+    from _pystack.elf_common cimport CoreFileAnalyzer as NativeCoreFileAnalyzer
+    from _pystack.process cimport CoreFileProcessManager
+
 from _pystack.elf_common cimport ProcessAnalyzer as NativeProcessAnalyzer
 from _pystack.elf_common cimport SectionInfo
 from _pystack.elf_common cimport getSectionInfo
+
 from _pystack.logging cimport initializePythonLoggerInterface
 from _pystack.mem cimport AbstractRemoteMemoryManager
 from _pystack.mem cimport MemoryMapInformation as CppMemoryMapInformation
 from _pystack.mem cimport ProcessMemoryManager
 from _pystack.mem cimport VirtualMap as CppVirtualMap
 from _pystack.process cimport AbstractProcessManager
-from _pystack.process cimport CoreFileProcessManager
+
 from _pystack.process cimport InterpreterStatus
 from _pystack.process cimport ProcessManager as NativeProcessManager
 from _pystack.process cimport ProcessTracer
@@ -178,102 +182,108 @@ def get_bss_info(binary):
 # MANAGEMENT CLASSES #
 ######################
 
-cdef shared_ptr[NativeCoreFileAnalyzer] get_core_analyzer(
-    core_file, executable=None, lib_search_path=None
-) except *:
-    cdef shared_ptr[NativeCoreFileAnalyzer] analyzer;
-    cdef cppstring the_core_file, the_executable, the_lib_search_path
-    the_core_file = str(core_file)
-    if executable is not None and lib_search_path is not None:
-        the_executable = str(executable)
-        the_lib_search_path = str(lib_search_path)
-        analyzer = make_shared[NativeCoreFileAnalyzer](
-            the_core_file, the_executable, the_lib_search_path
-        )
-    elif executable is not None and lib_search_path is None:
-        the_executable = str(executable)
-        analyzer = make_shared[NativeCoreFileAnalyzer](the_core_file, the_executable)
-    else:
-        analyzer = make_shared[NativeCoreFileAnalyzer](the_core_file)
-    return analyzer
+IF UNAME_SYSNAME == "Linux":
+    cdef shared_ptr[NativeCoreFileAnalyzer] get_core_analyzer(
+        core_file, executable=None, lib_search_path=None
+    ) except *:
+        cdef shared_ptr[NativeCoreFileAnalyzer] analyzer;
+        cdef cppstring the_core_file, the_executable, the_lib_search_path
+        the_core_file = str(core_file)
+        if executable is not None and lib_search_path is not None:
+            the_executable = str(executable)
+            the_lib_search_path = str(lib_search_path)
+            analyzer = make_shared[NativeCoreFileAnalyzer](
+                the_core_file, the_executable, the_lib_search_path
+            )
+        elif executable is not None and lib_search_path is None:
+            the_executable = str(executable)
+            analyzer = make_shared[NativeCoreFileAnalyzer](the_core_file, the_executable)
+        else:
+            analyzer = make_shared[NativeCoreFileAnalyzer](the_core_file)
+        return analyzer
 
 
-cdef class CoreFileAnalyzer:
-    cdef shared_ptr[CoreFileExtractor] _core_analyzer
-    cdef object ignored_libs
+    cdef class CoreFileAnalyzer:
+        cdef shared_ptr[CoreFileExtractor] _core_analyzer
+        cdef object ignored_libs
+    
+        def __cinit__(self, core_file, executable=None, lib_search_path=None):
+            self.ignored_libs = frozenset(("ld-linux", "linux-vdso"))
+            self._initialize_core_analyzer(core_file, executable, lib_search_path)
+    
+        @intercept_runtime_errors(EngineError)
+        def _initialize_core_analyzer(self, core_file, executable, lib_search_path) -> None:
+            cdef shared_ptr[NativeCoreFileAnalyzer] analyzer = get_core_analyzer(
+                core_file, executable, lib_search_path
+            )
+            self._core_analyzer = make_shared[CoreFileExtractor](analyzer)
+    
+        @intercept_runtime_errors(EngineError)
+        def extract_maps(self) -> Iterable[VirtualMap]:
+            mapped_files = self._core_analyzer.get().extractMappedFiles()
+            memory_maps = self._core_analyzer.get().MemoryMaps()
+            return generate_maps_from_core_data(mapped_files, memory_maps)
+    
+        @intercept_runtime_errors(EngineError)
+        def extract_pid(self) -> int:
+            return self._core_analyzer.get().Pid()
+    
+        @intercept_runtime_errors(CoreExecutableNotFound)
+        def extract_executable(self) -> pathlib.Path:
+            return pathlib.Path(self._core_analyzer.get().extractExecutable())
+    
+        @intercept_runtime_errors(EngineError)
+        def extract_failure_info(self) -> Dict[str, Any]:
+            return self._core_analyzer.get().extractFailureInfo()
+    
+        @intercept_runtime_errors(EngineError)
+        def extract_ps_info(self) -> Dict[str, Any]:
+            return self._core_analyzer.get().extractPSInfo()
+    
+        cdef _is_ignored_lib(self, object path):
+            return any(prefix in str(path) for prefix in self.ignored_libs)
+    
+        @intercept_runtime_errors(EngineError)
+        def missing_modules(self) -> Set[str]:
+            cdef set result = set()
+            cdef set missing_mod_names = set()
+            for mod in self._core_analyzer.get().missingModules():
+                path = pathlib.Path(mod)
+                if not self._is_ignored_lib(path):
+                    result.add(path)
+                    missing_mod_names.add(path.name)
+            for memmap in self._core_analyzer.get().MemoryMaps():
+                path = pathlib.Path(memmap.path)
+                if path.exists() or self._is_ignored_lib(path):
+                    continue
+                if path.name not in missing_mod_names:
+                    result.add(path)
+            return result
+    
+        @intercept_runtime_errors(EngineError)
+        def extract_module_load_points(self) -> Dict[str, int]:
+            return {
+                pathlib.Path(mod.filename).name: mod.start
+                for mod in self._core_analyzer.get().ModuleInformation()
+            }
+    
+        @intercept_runtime_errors(EngineError)
+        def extract_build_ids(self) -> Tuple[str, str, str]:
+            cdef object memory_maps = self._core_analyzer.get().MemoryMaps()
+            cdef object module_information = self._core_analyzer.get().ModuleInformation()
+            memory_maps_by_file = {map['path']: map['buildid'] for map in memory_maps}
+            for module in module_information:
+                filename = module['filename']
+                if self._is_ignored_lib(filename):
+                    continue
+                mod_buildid = module['buildid']
+                map_buildid = memory_maps_by_file.get(filename)
+                yield (filename, mod_buildid, map_buildid)
+ELSE:
+    class CoreFileAnalyzer:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("Core file analysis is not supported on this platform")
 
-    def __cinit__(self, core_file, executable=None, lib_search_path=None):
-        self.ignored_libs = frozenset(("ld-linux", "linux-vdso"))
-        self._initialize_core_analyzer(core_file, executable, lib_search_path)
-
-    @intercept_runtime_errors(EngineError)
-    def _initialize_core_analyzer(self, core_file, executable, lib_search_path) -> None:
-        cdef shared_ptr[NativeCoreFileAnalyzer] analyzer = get_core_analyzer(
-            core_file, executable, lib_search_path
-        )
-        self._core_analyzer = make_shared[CoreFileExtractor](analyzer)
-
-    @intercept_runtime_errors(EngineError)
-    def extract_maps(self) -> Iterable[VirtualMap]:
-        mapped_files = self._core_analyzer.get().extractMappedFiles()
-        memory_maps = self._core_analyzer.get().MemoryMaps()
-        return generate_maps_from_core_data(mapped_files, memory_maps)
-
-    @intercept_runtime_errors(EngineError)
-    def extract_pid(self) -> int:
-        return self._core_analyzer.get().Pid()
-
-    @intercept_runtime_errors(CoreExecutableNotFound)
-    def extract_executable(self) -> pathlib.Path:
-        return pathlib.Path(self._core_analyzer.get().extractExecutable())
-
-    @intercept_runtime_errors(EngineError)
-    def extract_failure_info(self) -> Dict[str, Any]:
-        return self._core_analyzer.get().extractFailureInfo()
-
-    @intercept_runtime_errors(EngineError)
-    def extract_ps_info(self) -> Dict[str, Any]:
-        return self._core_analyzer.get().extractPSInfo()
-
-    cdef _is_ignored_lib(self, object path):
-        return any(prefix in str(path) for prefix in self.ignored_libs)
-
-    @intercept_runtime_errors(EngineError)
-    def missing_modules(self) -> Set[str]:
-        cdef set result = set()
-        cdef set missing_mod_names = set()
-        for mod in self._core_analyzer.get().missingModules():
-            path = pathlib.Path(mod)
-            if not self._is_ignored_lib(path):
-                result.add(path)
-                missing_mod_names.add(path.name)
-        for memmap in self._core_analyzer.get().MemoryMaps():
-            path = pathlib.Path(memmap.path)
-            if path.exists() or self._is_ignored_lib(path):
-                continue
-            if path.name not in missing_mod_names:
-                result.add(path)
-        return result
-
-    @intercept_runtime_errors(EngineError)
-    def extract_module_load_points(self) -> Dict[str, int]:
-        return {
-            pathlib.Path(mod.filename).name: mod.start
-            for mod in self._core_analyzer.get().ModuleInformation()
-        }
-
-    @intercept_runtime_errors(EngineError)
-    def extract_build_ids(self) -> Tuple[str, str, str]:
-        cdef object memory_maps = self._core_analyzer.get().MemoryMaps()
-        cdef object module_information = self._core_analyzer.get().ModuleInformation()
-        memory_maps_by_file = {map['path']: map['buildid'] for map in memory_maps}
-        for module in module_information:
-            filename = module['filename']
-            if self._is_ignored_lib(filename):
-                continue
-            mod_buildid = module['buildid']
-            map_buildid = memory_maps_by_file.get(filename)
-            yield (filename, mod_buildid, map_buildid)
 
 cdef class ProcessManager:
     cdef shared_ptr[AbstractProcessManager] _manager
@@ -328,46 +338,50 @@ cdef class ProcessManager:
         executable: pathlib.Path,
         lib_search_path: Optional[pathlib.Path],
     ):
-        cdef shared_ptr[NativeCoreFileAnalyzer] analyzer = get_core_analyzer(
-            core_file, executable, lib_search_path
-        )
-        cdef unique_ptr[CoreFileExtractor] core_extractor = make_unique[
-            CoreFileExtractor
-        ](analyzer)
+        IF UNAME_SYSNAME == "Linux":
+            cdef shared_ptr[NativeCoreFileAnalyzer] analyzer = get_core_analyzer(
+                core_file, executable, lib_search_path
+            )
+            cdef unique_ptr[CoreFileExtractor] core_extractor = make_unique[
+                CoreFileExtractor
+            ](analyzer)
 
-        mapped_files = core_extractor.get().extractMappedFiles()
-        memory_maps = core_extractor.get().MemoryMaps()
-        load_point_by_module = {
-            pathlib.Path(mod.filename).name: mod.start
-            for mod in core_extractor.get().ModuleInformation()
-        }
+            mapped_files = core_extractor.get().extractMappedFiles()
+            memory_maps = core_extractor.get().MemoryMaps()
+            load_point_by_module = {
+                pathlib.Path(mod.filename).name: mod.start
+                for mod in core_extractor.get().ModuleInformation()
+            }
 
-        virtual_maps = list(
-            generate_maps_from_core_data(mapped_files, memory_maps)
-        )
-        pid = core_extractor.get().Pid()
-        map_info = parse_maps_file_for_binary(executable, virtual_maps, load_point_by_module)
+            virtual_maps = list(
+                generate_maps_from_core_data(mapped_files, memory_maps)
+            )
+            pid = core_extractor.get().Pid()
+            map_info = parse_maps_file_for_binary(executable, virtual_maps, load_point_by_module)
 
-        the_core_file = str(core_file)
-        the_executable = str(executable)
-        maps = _pymaps_to_maps(virtual_maps)
-        native_map_info =  _pymapinfo_to_mapinfo(map_info)
-        cdef shared_ptr[AbstractProcessManager] native_manager = <shared_ptr[AbstractProcessManager]> (
-            make_shared[CoreFileProcessManager](pid, analyzer, maps, native_map_info)
-        )
+            the_core_file = str(core_file)
+            the_executable = str(executable)
+            maps = _pymaps_to_maps(virtual_maps)
+            native_map_info =  _pymapinfo_to_mapinfo(map_info)
+            cdef shared_ptr[AbstractProcessManager] native_manager = <shared_ptr[AbstractProcessManager]> (
+                make_shared[CoreFileProcessManager](pid, analyzer, maps, native_map_info)
+            )
 
-        native_manager.get().setPythonVersionFromDebugOffsets()
-        python_version = native_manager.get().findPythonVersion()
-        if python_version == (-1, -1):
-            python_version = get_python_version_for_core(core_file, executable, map_info)
-        native_manager.get().setPythonVersion(python_version)
+            native_manager.get().setPythonVersionFromDebugOffsets()
+            python_version = native_manager.get().findPythonVersion()
+            if python_version == (-1, -1):
+                python_version = get_python_version_for_core(core_file, executable, map_info)
+            native_manager.get().setPythonVersion(python_version)
 
-        cdef ProcessManager new_manager = cls(
-            pid, python_version, virtual_maps, map_info
-        )
-        new_manager._manager = native_manager
+            cdef ProcessManager new_manager = cls(
+                pid, python_version, virtual_maps, map_info
+            )
+            new_manager._manager = native_manager
 
-        return new_manager
+            return new_manager
+        ELSE:
+            raise NotImplementedError("Core files are not supported on this platform")
+
 
     def __enter__(self):
         return self
@@ -697,86 +711,70 @@ def get_process_threads_for_core(
     locals: bool = False,
     method: StackMethod = StackMethod.AUTO,
 ) -> Iterable[PyThread]:
-    """Return an iterable of Thread objects that are registered with the given core file
+    IF UNAME_SYSNAME == "Linux":
+        if not isinstance(method, StackMethod):
+            raise ValueError("Invalid method for stack analysis")
 
-        Args:
-            core_file (pathlib.Path): The location of the core file to analyze.
-            executable (pathlib.Path): The location of the executable that the core file
-                was created from.
-            library_search_path (str): A ":"-separated list of directories to use when
-                trying to locate missing shared libraries in the core file.
-            native_mode (NativeReportingMode): If set to PYTHON, include the
-                native (C/C++) stack in the returned Thread objects for all threads
-                registered with the interpreter. If set to ALL, native stacks
-                from threads not registered with the interpreter will be provided
-                as well. By default this is set to OFF and native stacks are not
-                returned.
-            locals (bool): If **True**, retrieve the local variables and arguments for
-                every retrieved frame (may slow down the processing).
-            method (StackMethod): The method to locate the relevant Python structs
-                that are needed to unwind the Python stack.
-
-        Returns:
-            Iterable of Thread objects.
-    """
-    if not isinstance(method, StackMethod):
-        raise ValueError("Invalid method for stack analysis")
-
-    LOGGER.info(
-        "Analyzing core file %s with executable %s using stack method %s with native mode %s",
-        core_file,
-        executable,
-        method,
-        native_mode,
-    )
-    try:
-        yield from _get_process_threads_for_core(
-            core_file, executable, library_search_path, native_mode, locals, method
+        LOGGER.info(
+            "Analyzing core file %s with executable %s using stack method %s with native mode %s",
+            core_file,
+            executable,
+            method,
+            native_mode,
         )
-    except RuntimeError as e:
-        raise EngineError(*e.args, corefile=core_file) from e
+        try:
+            yield from _get_process_threads_for_core(
+                core_file, executable, library_search_path, native_mode, locals, method
+            )
+        except RuntimeError as e:
+            raise EngineError(*e.args, corefile=core_file) from e
+    ELSE:
+        raise NotImplementedError("Core files are not supported on this platform")
 
 
-def _get_process_threads_for_core(
-    corefile: pathlib.Path,
-    executable: pathlib.Path,
-    library_search_path: str = None,
-    native_mode: NativeReportingMode = NativeReportingMode.PYTHON,
-    locals: bool = False,
-    method: StackMethod = StackMethod.AUTO,
-) -> Iterable[PyThread]:
-    cdef ProcessManager pymanager = ProcessManager.create_from_core(
-        corefile, executable, library_search_path
-    )
 
-    LOGGER.debug("Available memory maps for core:")
-    for mem_map in pymanager.virtual_maps:
-        LOGGER.debug(mem_map)
-
-    cdef shared_ptr[AbstractProcessManager] manager = pymanager.get_manager()
-
-    if native_mode != NativeReportingMode.ALL:
-        _check_interpreter_shutdown(pymanager)
-
-    cdef remote_addr_t head = _get_interpreter_state_addr(
-        manager.get(), method, core=True
-    )
-
-    if not head and native_mode != NativeReportingMode.ALL:
-        raise NotEnoughInformation(
-            "Could not gather enough information to extract the Python frame information"
+IF UNAME_SYSNAME == "Linux":
+    def _get_process_threads_for_core(
+        corefile: pathlib.Path,
+        executable: pathlib.Path,
+        library_search_path: str = None,
+        native_mode: NativeReportingMode = NativeReportingMode.PYTHON,
+        locals: bool = False,
+        method: StackMethod = StackMethod.AUTO,
+    ) -> Iterable[PyThread]:
+        cdef ProcessManager pymanager = ProcessManager.create_from_core(
+            corefile, executable, library_search_path
         )
 
-    all_tids = list(manager.get().Tids())
+        LOGGER.debug("Available memory maps for core:")
+        for mem_map in pymanager.virtual_maps:
+            LOGGER.debug(mem_map)
 
-    if head:
-        native = native_mode in {NativeReportingMode.PYTHON, NativeReportingMode.ALL}
-        for thread in _construct_threads_from_interpreter_state(
-            manager, head, pymanager.pid, pymanager.python_version, native, locals
-        ):
-            if thread.tid in all_tids:
-                all_tids.remove(thread.tid)
-            yield thread
+        cdef shared_ptr[AbstractProcessManager] manager = pymanager.get_manager()
 
-    if native_mode == NativeReportingMode.ALL:
-        yield from _construct_os_threads(manager, pymanager.pid, all_tids)
+        if native_mode != NativeReportingMode.ALL:
+            _check_interpreter_shutdown(pymanager)
+
+        cdef remote_addr_t head = _get_interpreter_state_addr(
+            manager.get(), method, core=True
+        )
+
+        if not head and native_mode != NativeReportingMode.ALL:
+            raise NotEnoughInformation(
+                "Could not gather enough information to extract the Python frame information"
+            )
+
+        all_tids = list(manager.get().Tids())
+
+        if head:
+            native = native_mode in {NativeReportingMode.PYTHON, NativeReportingMode.ALL}
+            for thread in _construct_threads_from_interpreter_state(
+                manager, head, pymanager.pid, pymanager.python_version, native, locals
+            ):
+                if thread.tid in all_tids:
+                    all_tids.remove(thread.tid)
+                yield thread
+
+        if native_mode == NativeReportingMode.ALL:
+            yield from _construct_os_threads(manager, pymanager.pid, all_tids)
+

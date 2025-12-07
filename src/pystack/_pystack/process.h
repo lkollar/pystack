@@ -12,10 +12,19 @@
 #include <vector>
 
 #include "elf_common.h"
+
 #include "mem.h"
 #include "native_frame.h"
 #include "pycompat.h"
+#include "pytypes.h"
 #include "unwinder.h"
+
+#ifdef __linux__
+#    include "platform/linux/tracer.h"
+#elif defined(__APPLE__)
+#    include "platform/darwin/tracer.h"
+#endif
+
 #include "version.h"
 
 namespace pystack {
@@ -31,27 +40,8 @@ struct InvalidRemoteObject : public InvalidCopiedMemory
     }
 };
 
-class ProcessTracer
-{
-  public:
-    // Constructors
-    ProcessTracer(pid_t pid);
-    ProcessTracer(const ProcessTracer&) = delete;
-    ProcessTracer& operator=(const ProcessTracer&) = delete;
-
-    // Destructors
-    ~ProcessTracer();
-
-    // Methods
-    std::vector<int> getTids() const;
-
-  private:
-    // Data members
-    std::unordered_set<int> d_tids;
-
-    // Methods
-    void detachFromProcess();
-};
+// ProcessTracer definition moved to platform-specific headers
+class ProcessTracer;
 
 class AbstractProcessManager : public std::enable_shared_from_this<AbstractProcessManager>
 {
@@ -164,6 +154,7 @@ class ProcessManager : public AbstractProcessManager
     std::vector<int> d_tids;
 };
 
+#ifdef __linux__
 class CoreFileProcessManager : public AbstractProcessManager
 {
   public:
@@ -185,4 +176,6 @@ class CoreFileProcessManager : public AbstractProcessManager
     std::vector<int> d_tids;
     std::optional<std::string> d_executable;
 };
+#endif
+
 }  // namespace pystack

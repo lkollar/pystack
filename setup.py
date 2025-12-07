@@ -3,14 +3,20 @@ import pathlib
 import sys
 from sys import platform
 
-import pkgconfig
+try:
+    import pkgconfig
+except ImportError:
+    pkgconfig = None
+
 import setuptools
 from Cython.Build import cythonize
 
 IS_LINUX = "linux" in platform
+IS_MACOS = "darwin" in platform
 
-if not IS_LINUX:
+if not (IS_LINUX or IS_MACOS):
     raise RuntimeError(f"pystack does not support this platform ({platform})")
+
 
 install_requires = []
 
@@ -58,8 +64,10 @@ if TEST_BUILD:
 library_flags = {"libraries": ["elf", "dw"]}
 
 try:
-    library_flags = pkgconfig.parse("libelf libdw")
+    if IS_LINUX:
+        library_flags = pkgconfig.parse("libelf libdw")
 except EnvironmentError as e:
+
     print("pkg-config not found.", e)
     print("Falling back to static flags.")
 except pkgconfig.PackageNotFoundError as e:
@@ -75,8 +83,6 @@ PYSTACK_EXTENSION = setuptools.Extension(
     name="pystack._pystack",
     sources=[
         "src/pystack/_pystack.pyx",
-        "src/pystack/_pystack/corefile.cpp",
-        "src/pystack/_pystack/elf_common.cpp",
         "src/pystack/_pystack/logging.cpp",
         "src/pystack/_pystack/mem.cpp",
         "src/pystack/_pystack/process.cpp",
@@ -84,16 +90,41 @@ PYSTACK_EXTENSION = setuptools.Extension(
         "src/pystack/_pystack/pyframe.cpp",
         "src/pystack/_pystack/pythread.cpp",
         "src/pystack/_pystack/pytypes.cpp",
-        "src/pystack/_pystack/unwinder.cpp",
         "src/pystack/_pystack/version.cpp",
     ],
+
     language="c++",
     extra_compile_args=["-std=c++17"],
     extra_link_args=["-std=c++17"],
     **library_flags,
 )
 
-PYSTACK_EXTENSION.libraries.extend(["dl", "stdc++fs"])
+if IS_LINUX:
+    PYSTACK_EXTENSION.sources.extend([
+        "src/pystack/_pystack/corefile.cpp",
+        "src/pystack/_pystack/elf_common.cpp",
+        "src/pystack/_pystack/unwinder.cpp",
+        "src/pystack/_pystack/platform/linux/tracer.cpp",
+        "src/pystack/_pystack/platform/linux/memory.cpp",
+    ])
+elif IS_MACOS:
+    PYSTACK_EXTENSION.sources.extend([
+        "src/pystack/_pystack/platform/darwin/tracer.cpp",
+        "src/pystack/_pystack/platform/darwin/memory.cpp",
+        "src/pystack/_pystack/unwinder.cpp",  # Included but guarded
+    ])
+    # Remove elf/dw libraries if they were added by default
+    if "elf" in PYSTACK_EXTENSION.libraries:
+        PYSTACK_EXTENSION.libraries.remove("elf")
+    if "dw" in PYSTACK_EXTENSION.libraries:
+        PYSTACK_EXTENSION.libraries.remove("dw")
+
+
+if IS_LINUX:
+    PYSTACK_EXTENSION.libraries.extend(["dl", "stdc++fs"])
+else:
+    PYSTACK_EXTENSION.libraries.extend(["dl"])
+
 
 
 about = {}

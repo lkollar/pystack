@@ -9,6 +9,8 @@ from typing import Dict
 from typing import Iterable
 from typing import List
 from typing import Optional
+import sys
+
 
 from .errors import MissingExecutableMaps
 from .errors import ProcessNotFound
@@ -97,17 +99,14 @@ class MemoryMapInformation:
     libpython: Optional[VirtualMap]
 
 
-def _read_maps(pid: int) -> List[str]:
+def _generate_linux_maps(pid: int) -> Iterable[VirtualMap]:
     try:
         with open(f"/proc/{pid}/maps") as maps:
-            return maps.readlines()
+            proc_maps_lines = maps.readlines()
     except FileNotFoundError:
         raise ProcessNotFound(f"No such process id: {pid}") from None
 
-
-def generate_maps_for_process(pid: int) -> Iterable[VirtualMap]:
-    proc_maps_lines = _read_maps(pid)
-    for index, line in enumerate(proc_maps_lines):
+    for line in proc_maps_lines:
         line = line.rstrip("\n")
         match = MAPS_REGEXP.match(line)
         if not match:
@@ -125,6 +124,22 @@ def generate_maps_for_process(pid: int) -> Iterable[VirtualMap]:
             inode=int(match.group("inode")),
             path=Path(path) if path else None,
         )
+
+
+def _generate_darwin_maps(pid: int) -> Iterable[VirtualMap]:
+    # Placeholder for macOS map reading logic
+    # For Phase 0, we raise NotImplementedError
+    raise NotImplementedError("macOS memory maps not yet implemented")
+
+
+def generate_maps_for_process(pid: int) -> Iterable[VirtualMap]:
+    if sys.platform == "linux":
+        return _generate_linux_maps(pid)
+    elif sys.platform == "darwin":
+        return _generate_darwin_maps(pid)
+    else:
+        raise NotImplementedError(f"Platform {sys.platform} not supported")
+
 
 
 def generate_maps_from_core_data(

@@ -8,6 +8,7 @@
 #include "pycompat.h"
 #include "pyframe.h"
 #include "pytypes.h"
+#include "structure.h"
 #include "version.h"
 
 namespace pystack {

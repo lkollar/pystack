@@ -3,9 +3,13 @@
 #include <array>
 #include <vector>
 
+#include <optional>
+
 #include "process.h"
 
 namespace pystack {
+
+class AbstractProcessManager;
 
 template<typename OffsetsStruct>
 class Structure
@@ -20,10 +24,10 @@ class Structure
     void copyFromRemote();
 
     template<typename FieldPointer>
-    remote_addr_t getFieldRemoteAddress(FieldPointer OffsetsStruct::*field) const;
+    remote_addr_t getFieldRemoteAddress(FieldPointer OffsetsStruct::* field) const;
 
     template<typename FieldPointer>
-    const typename FieldPointer::Type& getField(FieldPointer OffsetsStruct::*field);
+    const typename FieldPointer::Type& getField(FieldPointer OffsetsStruct::* field);
 
   private:
     // Data members
@@ -66,19 +70,21 @@ Structure<OffsetsStruct>::copyFromRemote()
 template<typename OffsetsStruct>
 template<typename FieldPointer>
 inline remote_addr_t
-Structure<OffsetsStruct>::getFieldRemoteAddress(FieldPointer OffsetsStruct::*field) const
+Structure<OffsetsStruct>::getFieldRemoteAddress(FieldPointer OffsetsStruct::* field) const
 {
-    offset_t offset = (d_manager->offsets().get<OffsetsStruct>().*field).offset;
+    offset_t offset = (d_manager->offsets().template get<OffsetsStruct>().*field).offset;
+
     return d_addr + offset;
 }
 
 template<typename OffsetsStruct>
 template<typename FieldPointer>
 inline const typename FieldPointer::Type&
-Structure<OffsetsStruct>::getField(FieldPointer OffsetsStruct::*field)
+Structure<OffsetsStruct>::getField(FieldPointer OffsetsStruct::* field)
 {
     copyFromRemote();
-    offset_t offset = (d_manager->offsets().get<OffsetsStruct>().*field).offset;
+    offset_t offset = (d_manager->offsets().template get<OffsetsStruct>().*field).offset;
+
     if (d_size < 0 || (size_t)d_size < sizeof(typename FieldPointer::Type)
         || d_size - sizeof(typename FieldPointer::Type) < offset)
     {

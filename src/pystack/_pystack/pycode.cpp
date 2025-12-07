@@ -9,6 +9,7 @@
 #include "pycode.h"
 #include "pycompat.h"
 #include "pytypes.h"
+#include "structure.h"
 #include "version.h"
 
 static const int NO_LINE_NUMBER = -0x80;
