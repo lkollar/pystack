@@ -18,6 +18,12 @@
 #include "unwinder.h"
 #include "version.h"
 
+#ifdef __linux__
+#    include "platform/linux/tracer.h"
+#elif defined(__APPLE__)
+#    include "platform/darwin/tracer.h"
+#endif
+
 namespace pystack {
 
 template<typename OffsetsStruct>
@@ -29,28 +35,6 @@ struct InvalidRemoteObject : public InvalidCopiedMemory
     {
         return "Object copied from remote process is inconsistent";
     }
-};
-
-class ProcessTracer
-{
-  public:
-    // Constructors
-    ProcessTracer(pid_t pid);
-    ProcessTracer(const ProcessTracer&) = delete;
-    ProcessTracer& operator=(const ProcessTracer&) = delete;
-
-    // Destructors
-    ~ProcessTracer();
-
-    // Methods
-    std::vector<int> getTids() const;
-
-  private:
-    // Data members
-    std::unordered_set<int> d_tids;
-
-    // Methods
-    void detachFromProcess();
 };
 
 class AbstractProcessManager : public std::enable_shared_from_this<AbstractProcessManager>
@@ -147,7 +131,7 @@ class ProcessManager : public AbstractProcessManager
     // Constructors
     ProcessManager(
             pid_t pid,
-            const std::shared_ptr<ProcessTracer>& tracer,
+            const std::shared_ptr<AbstractProcessTracer>& tracer,
             const std::shared_ptr<ProcessAnalyzer>& analyzer,
             std::vector<VirtualMap> memory_maps,
             MemoryMapInformation map_info);
@@ -160,7 +144,7 @@ class ProcessManager : public AbstractProcessManager
 
   private:
     // Data members
-    std::shared_ptr<ProcessTracer> tracer;
+    std::shared_ptr<AbstractProcessTracer> tracer;
     std::vector<int> d_tids;
 };
 

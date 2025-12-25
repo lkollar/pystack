@@ -31,7 +31,8 @@ from _pystack.process cimport AbstractProcessManager
 from _pystack.process cimport CoreFileProcessManager
 from _pystack.process cimport InterpreterStatus
 from _pystack.process cimport ProcessManager as NativeProcessManager
-from _pystack.process cimport ProcessTracer
+from _pystack.process cimport AbstractProcessTracer
+from _pystack.process cimport LinuxProcessTracer
 from _pystack.process cimport remote_addr_t
 from _pystack.pycode cimport CodeObject
 from _pystack.pyframe cimport FrameObject
@@ -291,9 +292,9 @@ cdef class ProcessManager:
 
     @classmethod
     def create_from_pid(cls, int pid, bint stop_process):
-        cdef shared_ptr[ProcessTracer] tracer
+        cdef shared_ptr[AbstractProcessTracer] tracer
         if stop_process:
-            tracer = make_shared[ProcessTracer](pid)
+            tracer = make_shared[LinuxProcessTracer](pid)
 
         virtual_maps = list(generate_maps_for_process(pid))
         map_info = parse_maps_file(pid, virtual_maps)
