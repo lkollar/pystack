@@ -81,6 +81,7 @@ PYSTACK_EXTENSION = setuptools.Extension(
         "src/pystack/_pystack/mem.cpp",
         "src/pystack/_pystack/process.cpp",
         "src/pystack/_pystack/platform/linux/tracer.cpp",
+        "src/pystack/_pystack/platform/linux/process_info.cpp",
         "src/pystack/_pystack/pycode.cpp",
         "src/pystack/_pystack/pyframe.cpp",
         "src/pystack/_pystack/pythread.cpp",
