@@ -8,8 +8,9 @@ import setuptools
 from Cython.Build import cythonize
 
 IS_LINUX = "linux" in platform
+IS_DARWIN = "darwin" in platform
 
-if not IS_LINUX:
+if not IS_LINUX and not IS_DARWIN:
     raise RuntimeError(f"pystack does not support this platform ({platform})")
 
 install_requires = []
@@ -55,21 +56,26 @@ if TEST_BUILD:
     }
     DEFINE_MACROS.extend([("CYTHON_TRACE", "1"), ("CYTHON_TRACE_NOGIL", "1")])
 
-library_flags = {"libraries": ["elf", "dw"]}
+library_flags = {"libraries": []}
 
-try:
-    library_flags = pkgconfig.parse("libelf libdw")
-except EnvironmentError as e:
-    print("pkg-config not found.", e)
-    print("Falling back to static flags.")
-except pkgconfig.PackageNotFoundError as e:
-    print("Package Not Found", e)
-    print("Falling back to static flags.")
+if IS_LINUX:
+    library_flags = {"libraries": ["elf", "dw"]}
+    try:
+        library_flags = pkgconfig.parse("libelf libdw")
+    except EnvironmentError as e:
+        print("pkg-config not found.", e)
+        print("Falling back to static flags.")
+    except pkgconfig.PackageNotFoundError as e:
+        print("Package Not Found", e)
+        print("Falling back to static flags.")
 
 if "define_macros" not in library_flags:
     library_flags["define_macros"] = []
-
 library_flags["define_macros"].extend(DEFINE_MACROS)
+
+if "include_dirs" not in library_flags:
+    library_flags["include_dirs"] = []
+library_flags["include_dirs"].append("src/pystack/_pystack")
 
 # Platform-specific source files
 if IS_LINUX:
@@ -78,28 +84,34 @@ if IS_LINUX:
         "src/pystack/_pystack/platform/linux/process_info.cpp",
         "src/pystack/_pystack/platform/linux/binary_analyzer.cpp",
     ]
-else:
+    ELF_SOURCES = [
+        "src/pystack/_pystack/elf_common.cpp",
+        "src/pystack/_pystack/corefile.cpp",
+        "src/pystack/_pystack/unwinder.cpp",
+    ]
+elif IS_DARWIN:
     PLATFORM_SOURCES = [
         "src/pystack/_pystack/platform/darwin/tracer.cpp",
         "src/pystack/_pystack/platform/darwin/process_info.cpp",
         "src/pystack/_pystack/platform/darwin/binary_analyzer.cpp",
+        "src/pystack/_pystack/platform/darwin/elf_common_stub.cpp",
     ]
+    ELF_SOURCES = []
 
 PYSTACK_EXTENSION = setuptools.Extension(
     name="pystack._pystack",
     sources=[
         "src/pystack/_pystack.pyx",
-        "src/pystack/_pystack/corefile.cpp",
-        "src/pystack/_pystack/elf_common.cpp",
+        *ELF_SOURCES,
         "src/pystack/_pystack/logging.cpp",
         "src/pystack/_pystack/mem.cpp",
         "src/pystack/_pystack/process.cpp",
         *PLATFORM_SOURCES,
+        "src/pystack/_pystack/platform/tracer_factory.cpp",
         "src/pystack/_pystack/pycode.cpp",
         "src/pystack/_pystack/pyframe.cpp",
         "src/pystack/_pystack/pythread.cpp",
         "src/pystack/_pystack/pytypes.cpp",
-        "src/pystack/_pystack/unwinder.cpp",
         "src/pystack/_pystack/version.cpp",
     ],
     language="c++",
@@ -108,7 +120,9 @@ PYSTACK_EXTENSION = setuptools.Extension(
     **library_flags,
 )
 
-PYSTACK_EXTENSION.libraries.extend(["dl", "stdc++fs"])
+PYSTACK_EXTENSION.libraries.append("dl")
+if IS_LINUX:
+    PYSTACK_EXTENSION.libraries.append("stdc++fs")
 
 
 about = {}

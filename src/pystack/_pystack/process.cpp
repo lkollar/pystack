@@ -1249,7 +1249,9 @@ ProcessManager::ProcessManager(
     d_tids = tracer->getTids();
     d_manager = std::make_unique<ProcessMemoryManager>(pid, d_memory_maps);
     d_analyzer = analyzer;
+#ifdef __linux__
     d_unwinder = std::make_unique<Unwinder>(analyzer);
+#endif
 }
 
 const std::vector<int>&
@@ -1258,6 +1260,7 @@ ProcessManager::Tids() const
     return d_tids;
 }
 
+#ifdef __linux__
 CoreFileProcessManager::CoreFileProcessManager(
         pid_t pid,
         const std::shared_ptr<CoreFileAnalyzer>& analyzer,
@@ -1278,5 +1281,6 @@ CoreFileProcessManager::Tids() const
 {
     return d_tids;
 }
+#endif  // __linux__
 
 }  // namespace pystack

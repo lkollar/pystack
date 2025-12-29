@@ -5,7 +5,9 @@
 #include <ios>
 #include <memory>
 #include <sys/uio.h>
-#include <syscall.h>
+#ifdef __linux__
+#    include <syscall.h>
+#endif
 #include <system_error>
 #include <unistd.h>
 #include <utility>
@@ -16,6 +18,7 @@
 
 namespace pystack {
 
+#ifdef __linux__
 using elf_unique_ptr = std::unique_ptr<Elf, std::function<void(Elf*)>>;
 
 static ssize_t
@@ -29,6 +32,7 @@ _process_vm_readv(
 {
     return syscall(SYS_process_vm_readv, pid, lvec, liovcnt, rvec, riovcnt, flags);
 }
+#endif  // __linux__
 
 static const std::string PERM_MESSAGE = "Operation not permitted";
 static const size_t CACHE_CAPACITY = 5e+7;  // 50MB
@@ -228,13 +232,19 @@ ProcessMemoryManager::ProcessMemoryManager(pid_t pid)
 ssize_t
 ProcessMemoryManager::readChunk(remote_addr_t addr, size_t len, char* dst) const
 {
+#ifdef __linux__
     if (d_memfile || getenv("_PYSTACK_NO_PROCESS_VM_READV") != nullptr) {
         return readChunkThroughMemFile(addr, len, dst);
     } else {
         return readChunkDirect(addr, len, dst);
     }
+#else
+    // On non-Linux, always use the memfile approach (will fail until Darwin implementation)
+    return readChunkThroughMemFile(addr, len, dst);
+#endif
 }
 
+#ifdef __linux__
 ssize_t
 ProcessMemoryManager::readChunkDirect(remote_addr_t addr, size_t len, char* dst) const
 {
@@ -267,6 +277,7 @@ ProcessMemoryManager::readChunkDirect(remote_addr_t addr, size_t len, char* dst)
 
     return result;
 }
+#endif  // __linux__
 
 ssize_t
 ProcessMemoryManager::readChunkThroughMemFile(remote_addr_t addr, size_t len, char* dst) const
@@ -328,6 +339,7 @@ ProcessMemoryManager::isAddressValid(remote_addr_t addr, const VirtualMap& map) 
     return map.Start() <= addr && addr < map.End();
 }
 
+#ifdef __linux__
 CorefileRemoteMemoryManager::CorefileRemoteMemoryManager(
         std::shared_ptr<CoreFileAnalyzer> analyzer,
         std::vector<VirtualMap>& vmaps)
@@ -548,4 +560,5 @@ CorefileRemoteMemoryManager::isAddressValid(remote_addr_t addr, const VirtualMap
     }
     return map.Start() <= addr && addr < map.Start() + map.Size();
 }
+#endif  // __linux__
 }  // namespace pystack

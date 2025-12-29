@@ -18,11 +18,8 @@ cdef extern from "process.h" namespace "pystack::AbstractProcessManager":
 
 cdef extern from "platform/abstract_tracer.h" namespace "pystack":
     cdef cppclass AbstractProcessTracer:
-        pass
-
-cdef extern from "platform/linux/tracer.h" namespace "pystack":
-    cdef cppclass LinuxProcessTracer(AbstractProcessTracer):
-        LinuxProcessTracer(int pid) except+
+        @staticmethod
+        shared_ptr[AbstractProcessTracer] create(int pid) except+
 
 cdef extern from "process.h" namespace "pystack":
 

@@ -12,7 +12,13 @@
 #include <sys/stat.h>
 #include <vector>
 
-#include "elf_common.h"
+#ifdef __linux__
+#    include "elf_common.h"
+#elif defined(__APPLE__)
+#    include "platform/darwin/elf_common_stub.h"
+#else
+#    error "Unsupported platform"
+#endif
 
 namespace pystack {
 
@@ -192,6 +198,7 @@ struct SimpleVirtualMap
     std::string buildid;
 };
 
+#ifdef __linux__
 class CorefileRemoteMemoryManager : public AbstractRemoteMemoryManager
 {
   public:
@@ -212,6 +219,7 @@ class CorefileRemoteMemoryManager : public AbstractRemoteMemoryManager
         ERROR,
     };
 
+#    ifdef __linux__
     struct ElfLoadSegment
     {
         GElf_Addr vaddr;
@@ -220,6 +228,7 @@ class CorefileRemoteMemoryManager : public AbstractRemoteMemoryManager
     };
     // Cache for PT_LOAD segments
     mutable std::unordered_map<std::string, std::vector<ElfLoadSegment>> d_elf_load_segments_cache;
+#    endif
 
     // Data members
     std::shared_ptr<CoreFileAnalyzer> d_analyzer;
@@ -228,6 +237,7 @@ class CorefileRemoteMemoryManager : public AbstractRemoteMemoryManager
     size_t d_corefile_size;
     std::unique_ptr<char, std::function<void(char*)>> d_corefile_data;
 
+#    ifdef __linux__
     StatusCode readCorefile(int fd, const char* filename) noexcept;
     StatusCode getMemoryLocationFromCore(remote_addr_t addr, off_t* offset_in_file) const;
     StatusCode getMemoryLocationFromElf(
@@ -235,5 +245,7 @@ class CorefileRemoteMemoryManager : public AbstractRemoteMemoryManager
             const std::string** filename,
             off_t* offset_in_file) const;
     StatusCode initLoadSegments(const std::string& filename) const;
+#    endif
 };
+#endif  // __linux__
 }  // namespace pystack

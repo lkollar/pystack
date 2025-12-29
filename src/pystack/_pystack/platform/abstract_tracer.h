@@ -1,7 +1,8 @@
 #pragma once
 
-#include <vector>
+#include <memory>
 #include <unistd.h>
+#include <vector>
 
 namespace pystack {
 
@@ -15,6 +16,8 @@ class AbstractProcessTracer
 
     // Detach from process (called by destructor)
     virtual void detachFromProcess() = 0;
+
+    static std::shared_ptr<AbstractProcessTracer> create(pid_t pid);
 };
 
 }  // namespace pystack

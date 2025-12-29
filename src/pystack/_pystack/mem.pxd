@@ -26,6 +26,16 @@ cdef extern from "mem.h" namespace "pystack":
                    cppstring flags, unsigned long offset, cppstring permissions,
                    unsigned long inode, cppstring pathname)
 
+        uintptr_t Start() const
+        uintptr_t End() const
+        unsigned long FileSize() const
+        const cppstring& Flags() const
+        unsigned long Offset() const
+        const cppstring& Device() const
+        unsigned long Inode() const
+        const cppstring& Path() const
+        size_t Size() const
+
     cdef cppclass MemoryMapInformation:
         MemoryMapInformation()
         void setMainMap(const VirtualMap& bss)

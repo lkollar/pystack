@@ -66,16 +66,16 @@ LinuxProcessInfo::getMemoryMaps(pid_t pid) const
         unsigned long inode;
         char pathname[PATH_MAX] = "";
 
-        int matched = sscanf(
-                line.c_str(),
-                "%lx-%lx %4s %lx %11s %lu %[^\n]",
-                &start,
-                &end,
-                perms,
-                &offset,
-                dev,
-                &inode,
-                pathname);
+        int matched =
+                sscanf(line.c_str(),
+                       "%lx-%lx %4s %lx %11s %lu %[^\n]",
+                       &start,
+                       &end,
+                       perms,
+                       &offset,
+                       dev,
+                       &inode,
+                       pathname);
 
         if (matched < 6) {
             continue;  // Skip malformed lines
@@ -93,6 +93,12 @@ LinuxProcessInfo::getMemoryMaps(pid_t pid) const
     }
 
     return maps;
+}
+
+std::unique_ptr<AbstractProcessInfo>
+AbstractProcessInfo::create()
+{
+    return std::make_unique<LinuxProcessInfo>();
 }
 
 }  // namespace pystack

@@ -9,10 +9,12 @@
 #include <unistd.h>
 
 #include "logging.h"
-#include <elf.h>
-#include <elfutils/libdwelf.h>
-#include <elfutils/libdwfl.h>
-#include <gelf.h>
+
+#ifdef __linux__
+#    include <elf.h>
+#    include <elfutils/libdwelf.h>
+#    include <elfutils/libdwfl.h>
+#    include <gelf.h>
 
 namespace pystack {
 
@@ -118,3 +120,8 @@ std::string
 getBuildId(const std::string& filename);
 
 }  // namespace pystack
+#endif  // __linux__
+
+#ifdef __APPLE__
+#    include "platform/darwin/elf_common_stub.h"
+#endif

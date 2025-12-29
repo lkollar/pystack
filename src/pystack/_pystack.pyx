@@ -4,6 +4,7 @@ import functools
 import logging
 import os
 import pathlib
+import sys
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -31,7 +32,6 @@ from _pystack.process cimport AbstractProcessManager
 from _pystack.process cimport AbstractProcessTracer
 from _pystack.process cimport CoreFileProcessManager
 from _pystack.process cimport InterpreterStatus
-from _pystack.process cimport LinuxProcessTracer
 from _pystack.process cimport ProcessManager as NativeProcessManager
 from _pystack.process cimport remote_addr_t
 from _pystack.pycode cimport CodeObject
@@ -191,6 +191,17 @@ def get_bss_info(binary):
         }
     return None
 
+
+def process_exists(pid):
+    """Check if a process with the given PID exists."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
 ######################
 # MANAGEMENT CLASSES #
 ######################
@@ -310,7 +321,7 @@ cdef class ProcessManager:
     def create_from_pid(cls, int pid, bint stop_process):
         cdef shared_ptr[AbstractProcessTracer] tracer
         if stop_process:
-            tracer = make_shared[LinuxProcessTracer](pid)
+            tracer = AbstractProcessTracer.create(pid)
 
         virtual_maps = list(generate_maps_for_process(pid))
         map_info = parse_maps_file(pid, virtual_maps)
@@ -345,6 +356,9 @@ cdef class ProcessManager:
         executable: pathlib.Path,
         lib_search_path: Optional[pathlib.Path],
     ):
+        if not sys.platform.startswith('linux'):
+            raise RuntimeError("pystack core not implemented on this platform")
+
         cdef shared_ptr[NativeCoreFileAnalyzer] analyzer = get_core_analyzer(
             core_file, executable, lib_search_path
         )

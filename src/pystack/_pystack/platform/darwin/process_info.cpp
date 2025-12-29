@@ -33,4 +33,10 @@ DarwinProcessInfo::getMemoryMaps(pid_t pid) const
     throw std::runtime_error("DarwinProcessInfo not implemented");
 }
 
+std::unique_ptr<AbstractProcessInfo>
+AbstractProcessInfo::create()
+{
+    return std::make_unique<DarwinProcessInfo>();
+}
+
 }  // namespace pystack

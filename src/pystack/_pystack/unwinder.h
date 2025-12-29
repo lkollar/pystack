@@ -8,12 +8,15 @@
 #include <utility>
 #include <vector>
 
-#include "elf_common.h"
-#include "mem.h"
+#ifdef __linux__
+#    include "elf_common.h"
+#    include "mem.h"
+#endif
 #include "native_frame.h"
 
 namespace pystack {
 
+#ifdef __linux__
 class UnwinderError : public std::exception
 {
   public:
@@ -162,4 +165,10 @@ class CoreFileUnwinder : public AbstractUnwinder
     // Data members
     std::shared_ptr<CoreFileAnalyzer> d_analyzer;
 };
+#endif  // __linux__
+
+#ifdef __APPLE__
+#    include "platform/darwin/unwinder_stub.h"
+#endif
+
 }  // namespace pystack

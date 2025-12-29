@@ -1,8 +1,8 @@
 #pragma once
 
 #include <string>
-#include <vector>
 #include <unistd.h>
+#include <vector>
 
 #include "mem.h"
 
@@ -24,6 +24,9 @@ class AbstractProcessInfo
 
     // Get memory maps for process
     virtual std::vector<VirtualMap> getMemoryMaps(pid_t pid) const = 0;
+
+    // Factory method
+    static std::unique_ptr<AbstractProcessInfo> create();
 };
 
 }  // namespace pystack

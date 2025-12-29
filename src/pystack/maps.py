@@ -1,7 +1,6 @@
 import collections
 import dataclasses
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -9,6 +8,8 @@ from typing import Dict
 from typing import Iterable
 from typing import List
 from typing import Optional
+
+from pystack import _pystack
 
 from .errors import MissingExecutableMaps
 from .errors import ProcessNotFound
@@ -97,34 +98,13 @@ class MemoryMapInformation:
     libpython: Optional[VirtualMap]
 
 
-def _read_maps(pid: int) -> List[str]:
-    try:
-        with open(f"/proc/{pid}/maps") as maps:
-            return maps.readlines()
-    except FileNotFoundError:
-        raise ProcessNotFound(f"No such process id: {pid}") from None
-
-
 def generate_maps_for_process(pid: int) -> Iterable[VirtualMap]:
-    proc_maps_lines = _read_maps(pid)
-    for index, line in enumerate(proc_maps_lines):
-        line = line.rstrip("\n")
-        match = MAPS_REGEXP.match(line)
-        if not match:
-            LOGGER.debug("Line %r cannot be recognized!", line)
-            continue
-
-        path = match.group("pathname")
-        yield VirtualMap(
-            start=int(match.group("start"), 16),
-            end=int(match.group("end"), 16),
-            filesize=int(match.group("end"), 16) - int(match.group("start"), 16),
-            offset=int(match.group("offset"), 16),
-            device=match.group("dev"),
-            flags=match.group("permissions"),
-            inode=int(match.group("inode")),
-            path=Path(path) if path else None,
-        )
+    try:
+        return _pystack.get_memory_maps(pid)
+    except RuntimeError as e:
+        if "No such process" in str(e) or "Failed to open" in str(e):
+            raise ProcessNotFound(f"No such process id: {pid}") from None
+        raise
 
 
 def generate_maps_from_core_data(
@@ -176,7 +156,9 @@ def generate_maps_from_core_data(
 
 
 def parse_maps_file(pid: int, all_maps: Iterable[VirtualMap]) -> MemoryMapInformation:
-    binary_name = Path(os.readlink(f"/proc/{pid}/exe"))
+    from pystack import _pystack
+
+    binary_name = Path(_pystack.get_executable_path(pid))
     return parse_maps_file_for_binary(binary_name, all_maps)
 
 

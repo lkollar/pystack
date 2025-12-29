@@ -1,9 +1,12 @@
+import os
+import subprocess
 from unittest.mock import Mock
 from unittest.mock import mock_open
 from unittest.mock import patch
 
 import pytest
 
+from pystack import _pystack
 from pystack.errors import InvalidPythonProcess
 from pystack.maps import VirtualMap
 from pystack.process import BINARY_REGEXP
@@ -478,3 +481,37 @@ def test_scan_core_bss_for_python_version_failure():
     # THEN
 
     assert result is None
+
+
+class TestProcessExists:
+    def test_current_process_exists(self):
+        # GIVEN
+        pid = os.getpid()
+
+        # WHEN
+        result = _pystack.process_exists(pid)
+
+        # THEN
+        assert result is True
+
+    def test_nonexistent_process(self):
+        # GIVEN
+        proc = subprocess.Popen(["true"])
+        pid = proc.pid
+        proc.wait()
+
+        # WHEN
+        result = _pystack.process_exists(pid)
+
+        # THEN
+        assert result is False
+
+    def test_init_process_exists(self):
+        # GIVEN
+        pid = 1
+
+        # WHEN
+        result = _pystack.process_exists(pid)
+
+        # THEN
+        assert result is True

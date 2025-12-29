@@ -13,6 +13,7 @@ from typing import Optional
 from typing import Set
 
 from pystack import __version__
+from pystack import _pystack
 from pystack.errors import InvalidPythonProcess
 from pystack.process import decompress_gzip
 from pystack.process import is_elf
@@ -82,7 +83,7 @@ def produce_error_message(exception: BaseException) -> str:
         NO_SUCH_PROCESS_ERROR_MSG in str(exception)
         and isinstance(exception, errors.EngineError)
         and exception.pid is not None
-        and pathlib.Path(f"/proc/{exception.pid}").exists()
+        and _pystack.process_exists(exception.pid)
     ):
         msg += PERMISSION_HELP_TEXT
     return colored(msg, "red")

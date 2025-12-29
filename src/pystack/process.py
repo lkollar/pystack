@@ -7,6 +7,7 @@ import tempfile
 from typing import Optional
 from typing import Tuple
 
+from . import _pystack
 from .errors import InvalidPythonProcess
 from .maps import MemoryMapInformation
 from .maps import VirtualMap
@@ -133,11 +134,7 @@ def is_elf(filename: pathlib.Path) -> bool:
 
 
 def get_thread_name(pid: int, tid: int) -> Optional[str]:
-    try:
-        with open(f"/proc/{pid}/task/{tid}/comm") as comm:
-            return comm.read().strip()
-    except OSError:
-        return None
+    return _pystack.get_thread_name(pid, tid)
 
 
 def is_gzip(filename: pathlib.Path) -> bool:
