@@ -97,9 +97,6 @@ class ProcessAnalyzer : public Analyzer
     int d_pid;
 };
 
-uintptr_t
-getLoadPointOfModule(const dwfl_unique_ptr& dwfl, const std::string& mod);
-
 // Utility functions for accessing NOTE sections
 
 struct NoteData
@@ -113,19 +110,6 @@ struct NoteData
 
 std::vector<NoteData>
 getNoteData(Elf* elf, Elf64_Word note_type, Elf_Type note_data_type);
-
-struct SectionInfo
-{
-    std::string name;
-    std::string flags;
-    uintptr_t addr;
-    uintptr_t corrected_addr;
-    off_t offset;
-    size_t size;
-};
-
-bool
-getSectionInfo(const std::string& filename, const std::string& section_name, SectionInfo* result);
 
 std::string
 buildIdPtrToString(const uint8_t* id, ssize_t size);

@@ -71,6 +71,20 @@ if "define_macros" not in library_flags:
 
 library_flags["define_macros"].extend(DEFINE_MACROS)
 
+# Platform-specific source files
+if IS_LINUX:
+    PLATFORM_SOURCES = [
+        "src/pystack/_pystack/platform/linux/tracer.cpp",
+        "src/pystack/_pystack/platform/linux/process_info.cpp",
+        "src/pystack/_pystack/platform/linux/binary_analyzer.cpp",
+    ]
+else:
+    PLATFORM_SOURCES = [
+        "src/pystack/_pystack/platform/darwin/tracer.cpp",
+        "src/pystack/_pystack/platform/darwin/process_info.cpp",
+        "src/pystack/_pystack/platform/darwin/binary_analyzer.cpp",
+    ]
+
 PYSTACK_EXTENSION = setuptools.Extension(
     name="pystack._pystack",
     sources=[
@@ -80,8 +94,7 @@ PYSTACK_EXTENSION = setuptools.Extension(
         "src/pystack/_pystack/logging.cpp",
         "src/pystack/_pystack/mem.cpp",
         "src/pystack/_pystack/process.cpp",
-        "src/pystack/_pystack/platform/linux/tracer.cpp",
-        "src/pystack/_pystack/platform/linux/process_info.cpp",
+        *PLATFORM_SOURCES,
         "src/pystack/_pystack/pycode.cpp",
         "src/pystack/_pystack/pyframe.cpp",
         "src/pystack/_pystack/pythread.cpp",

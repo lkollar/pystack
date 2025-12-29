@@ -1172,19 +1172,26 @@ remote_addr_t
 AbstractProcessManager::findPyRuntimeFromElfData() const
 {
     LOG(INFO) << "Trying to resolve PyInterpreterState from Elf data";
-    SectionInfo section_info;
-    if (!getSectionInfo(d_main_map.value().Path(), ".PyRuntime", &section_info)) {
+
+#ifdef __linux__
+    ElfBinaryAnalyzer binary(d_main_map.value().Path(), d_analyzer->getDwfl());
+    auto section = binary.findSection(".PyRuntime");
+    if (!section) {
         LOG(INFO) << "Failed to resolve PyInterpreterState from Elf data because .PyRuntime section "
                      "could not be found";
         return 0;
     }
-    remote_addr_t load_addr = getLoadPointOfModule(d_analyzer->getDwfl(), d_main_map.value().Path());
+    remote_addr_t load_addr = binary.getLoadPoint();
     if (load_addr == 0) {
         LOG(INFO) << "Failed to resolve PyInterpreterState from Elf data because module load point "
                      "could not be found";
         return 0;
     }
-    return load_addr + section_info.corrected_addr;
+    return load_addr + section->corrected_addr;
+#else
+    LOG(INFO) << "findPyRuntimeFromElfData not implemented on this platform";
+    return 0;
+#endif
 }
 
 remote_addr_t

@@ -14,13 +14,16 @@
 #include "elf_common.h"
 #include "mem.h"
 #include "native_frame.h"
+#include "platform/binary_analyzer.h"
 #include "pycompat.h"
 #include "unwinder.h"
 #include "version.h"
 
 #ifdef __linux__
+#    include "platform/linux/binary_analyzer.h"
 #    include "platform/linux/tracer.h"
 #elif defined(__APPLE__)
+#    include "platform/darwin/binary_analyzer.h"
 #    include "platform/darwin/tracer.h"
 #endif
 

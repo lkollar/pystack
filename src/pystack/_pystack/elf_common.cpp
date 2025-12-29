@@ -390,147 +390,10 @@ getNoteData(Elf* elf, Elf64_Word note_type, Elf_Type note_data_type)
     return {};
 }
 
-bool
-getSectionInfo(const std::string& filename, const std::string& section_name, SectionInfo* result)
-{
-    if (elf_version(EV_CURRENT) == EV_NONE) {
-        LOG(ERROR) << "libelf library ELF version too old";
-        return false;
-    }
-
-    LOG(DEBUG) << "Trying to locate .PyRuntime data offset from program headers";
-    file_unique_ptr file(fopen(filename.c_str(), "r"), fclose);
-    if (!file || fileno(file.get()) == -1) {
-        LOG(ERROR) << "Cannot open ELF file " << filename;
-        return false;
-    }
-    const int fd = fileno(file.get());
-
-    elf_unique_ptr elf = elf_unique_ptr(elf_begin(fd, ELF_C_READ_MMAP, nullptr), elf_end);
-    if (!elf) {
-        LOG(ERROR) << "Cannot read ELF file " << filename;
-        return false;
-    }
-
-    Elf* the_elf = elf.get();
-
-    size_t shnum;
-    size_t nphdr;
-    if (elf_getphdrnum(the_elf, &nphdr) != 0) {
-        LOG(ERROR) << "Failed to get program headers";
-        return false;
-    }
-
-    Dwarf_Addr load_point = 0;
-    for (size_t i = 0; i < nphdr; i++) {
-        GElf_Phdr phdr;
-        if (gelf_getphdr(the_elf, i, &phdr) != &phdr) {
-            continue;
-        }
-
-        if (phdr.p_type != PT_LOAD) {
-            continue;
-        }
-
-        load_point = phdr.p_vaddr - phdr.p_vaddr % phdr.p_align;
-        LOG(DEBUG) << "Found load point of main Python " << filename << " at " << std::hex
-                   << std::showbase << load_point;
-        break;
-    }
-
-    if (elf_getshdrnum(the_elf, &shnum) < 0) {
-        LOG(ERROR) << "Cannot determine the number of sections in the ELF file";
-        return false;
-    }
-
-    size_t shstrndx;
-    if (elf_getshdrstrndx(the_elf, &shstrndx) < 0) {
-        LOG(ERROR) << "Cannot get the section string table";
-        return false;
-    }
-
-    LOG(DEBUG) << "Found " << shnum << " sections in the ELF file";
-
-    LOG(DEBUG) << "Searching file " << filename << " for " << section_name << " section";
-
-    if (shnum != 0) {
-        Elf_Scn* scn = nullptr;
-        while ((scn = elf_nextscn(the_elf, scn)) != nullptr) {
-            GElf_Shdr shdr_mem;
-            GElf_Shdr* shdr = gelf_getshdr(scn, &shdr_mem);
-            if (shdr == nullptr) {
-                continue;
-            }
-            const char* sname = elf_strptr(the_elf, shstrndx, shdr->sh_name) ?: "<corrupt>";
-            LOG(DEBUG) << "Section found with name: " << sname;
-            if (sname == nullptr || std::string(sname) != section_name) {
-                continue;
-            }
-            LOG(DEBUG) << "Found " << section_name << " section with offset " << std::hex
-                       << std::showbase << shdr->sh_addr;
-
-            result->name = section_name;
-            result->flags = parse_permissions(shdr->sh_flags);
-            result->addr = shdr->sh_addr;
-            result->corrected_addr = shdr->sh_addr - load_point;
-            result->offset = shdr->sh_offset;
-            result->size = shdr->sh_size;
-            return true;
-        }
-    }
-    return false;
-}
-
 const dwfl_unique_ptr&
 CoreFileAnalyzer::getDwfl() const
 {
     return d_dwfl;
-}
-
-static int
-module_callback(
-        Dwfl_Module* mod,
-        void** userdata __attribute__((unused)),
-        const char* name __attribute__((unused)),
-        Dwarf_Addr starty __attribute__((unused)),
-        void* arg)
-{
-    auto args = static_cast<std::pair<uintptr_t, const std::string&>*>(arg);
-    if (args->first != 0) {
-        return DWARF_CB_OK;
-    }
-
-    Dwarf_Addr start;
-    Dwarf_Addr end;
-    const char* mainfile;
-    const char* debugfile;
-    const char* modname =
-            dwfl_module_info(mod, nullptr, &start, &end, nullptr, nullptr, &mainfile, &debugfile);
-    if (mainfile != nullptr) {
-        modname = mainfile;
-    } else if (debugfile != nullptr) {
-        modname = debugfile;
-    }
-
-    if (args->second == modname) {
-        args->first = start;
-        return DWARF_CB_ABORT;
-    }
-
-    return DWARF_CB_OK;
-}
-
-uintptr_t
-getLoadPointOfModule(const dwfl_unique_ptr& dwfl, const std::string& mod)
-{
-    LOG(DEBUG) << "Finding load point of binary " << mod;
-    auto args = std::pair<uintptr_t, const std::string&>(0, mod);
-    if (dwfl_getmodules(dwfl.get(), module_callback, &args, 0) == -1) {
-        LOG(ERROR) << "Failed to obtain load point of binary " << mod;
-        return 0;
-    }
-    LOG(DEBUG) << "Load point of module found at " << std::hex << std::showbase << args.first;
-    return args.first;
 }
 
 std::string
@@ -556,7 +419,7 @@ getBuildId(const std::string& filename)
         return "";
     }
 
-    LOG(DEBUG) << "Trying to locate .PyRuntime data offset from program headers";
+    LOG(DEBUG) << "Trying to locate Build ID from binary " << filename;
     file_unique_ptr file(fopen(filename.c_str(), "r"), fclose);
     if (!file || fileno(file.get()) == -1) {
         LOG(ERROR) << "Cannot open ELF file " << filename;

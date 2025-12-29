@@ -20,19 +20,19 @@ from cython.operator import postincrement
 from _pystack.corefile cimport CoreFileExtractor
 from _pystack.elf_common cimport CoreFileAnalyzer as NativeCoreFileAnalyzer
 from _pystack.elf_common cimport ProcessAnalyzer as NativeProcessAnalyzer
-from _pystack.elf_common cimport SectionInfo
-from _pystack.elf_common cimport getSectionInfo
 from _pystack.logging cimport initializePythonLoggerInterface
 from _pystack.mem cimport AbstractRemoteMemoryManager
 from _pystack.mem cimport MemoryMapInformation as CppMemoryMapInformation
 from _pystack.mem cimport ProcessMemoryManager
 from _pystack.mem cimport VirtualMap as CppVirtualMap
+from _pystack.platform.binary_analyzer cimport AbstractBinaryAnalyzer
+from _pystack.platform.binary_analyzer cimport SectionInfo
 from _pystack.process cimport AbstractProcessManager
+from _pystack.process cimport AbstractProcessTracer
 from _pystack.process cimport CoreFileProcessManager
 from _pystack.process cimport InterpreterStatus
-from _pystack.process cimport ProcessManager as NativeProcessManager
-from _pystack.process cimport AbstractProcessTracer
 from _pystack.process cimport LinuxProcessTracer
+from _pystack.process cimport ProcessManager as NativeProcessManager
 from _pystack.process cimport remote_addr_t
 from _pystack.pycode cimport CodeObject
 from _pystack.pyframe cimport FrameObject
@@ -169,10 +169,26 @@ cdef vector[CppVirtualMap] _pymaps_to_maps(pymaps: Iterable[VirtualMap]) except 
 
 
 def get_bss_info(binary):
-    cdef SectionInfo _result
-    if getSectionInfo(str(binary), b".bss", &_result):
-        result = _result
-        return result
+    """Get BSS section info from a binary. Returns dict with keys: name, flags, addr, corrected_addr, offset, size"""
+    cdef unique_ptr[AbstractBinaryAnalyzer] analyzer
+    cdef bytes name_bytes
+    cdef bytes flags_bytes
+
+    # Use factory pattern - platform-agnostic
+    analyzer = AbstractBinaryAnalyzer.create(str(binary).encode())
+    section = analyzer.get().findSection(b".bss")
+    if section.has_value():
+        result = section.value()
+        name_bytes = result.name.c_str()
+        flags_bytes = result.flags.c_str()
+        return {
+            "name": name_bytes.decode() if name_bytes else "",
+            "flags": flags_bytes.decode() if flags_bytes else "",
+            "addr": result.addr,
+            "corrected_addr": result.corrected_addr,
+            "offset": result.offset,
+            "size": result.size,
+        }
     return None
 
 ######################
