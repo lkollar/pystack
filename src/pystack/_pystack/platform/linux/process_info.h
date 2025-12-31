@@ -4,6 +4,9 @@
 
 namespace pystack {
 
+std::vector<VirtualMap>
+parseProcMaps(const std::string& content);
+
 class LinuxProcessInfo : public AbstractProcessInfo
 {
   public:

@@ -515,3 +515,21 @@ class TestProcessExists:
 
         # THEN
         assert result is True
+
+
+def test_get_thread_name_handles_missing_thread():
+    proc = subprocess.Popen(["true"])
+    invalid_pid = proc.pid
+    proc.wait()
+    invalid_tid = 12345
+
+    with pytest.raises(OSError):
+        _pystack.get_thread_name(invalid_pid, invalid_tid)
+
+
+def test_get_executable_path_raises_oserror():
+    proc = subprocess.Popen(["true"])
+    proc.wait()
+    invalid_pid = proc.pid
+    with pytest.raises(OSError):
+        _pystack.get_executable_path(invalid_pid)

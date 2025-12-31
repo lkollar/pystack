@@ -28,6 +28,8 @@ from _pystack.mem cimport ProcessMemoryManager
 from _pystack.mem cimport VirtualMap as CppVirtualMap
 from _pystack.platform.binary_analyzer cimport AbstractBinaryAnalyzer
 from _pystack.platform.binary_analyzer cimport SectionInfo
+from _pystack.platform.process_info cimport AbstractProcessInfo
+from _pystack.platform.process_info cimport parseProcMaps
 from _pystack.process cimport AbstractProcessManager
 from _pystack.process cimport AbstractProcessTracer
 from _pystack.process cimport CoreFileProcessManager
@@ -40,6 +42,7 @@ from _pystack.pythread cimport NativeThread
 from _pystack.pythread cimport Thread
 from _pystack.pythread cimport getThreadFromInterpreterState
 from cpython.unicode cimport PyUnicode_Decode
+from libc.errno cimport errno
 from libcpp.memory cimport make_shared
 from libcpp.memory cimport make_unique
 from libcpp.memory cimport shared_ptr
@@ -60,7 +63,6 @@ from .maps import parse_maps_file
 from .maps import parse_maps_file_for_binary
 from .process import get_python_version_for_core
 from .process import get_python_version_for_process
-from .process import get_thread_name
 from .types import LocationInfo
 from .types import NativeFrame
 from .types import PyCodeObject
@@ -811,3 +813,41 @@ def _get_process_threads_for_core(
 
     if native_mode == NativeReportingMode.ALL:
         yield from _construct_os_threads(manager, pymanager.pid, all_tids)
+
+
+cdef list _cppmaps_to_pymaps(vector[CppVirtualMap] native_maps):
+    cdef list result = []
+    cdef CppVirtualMap native_map
+    for native_map in native_maps:
+        result.append(VirtualMap(
+            start=native_map.Start(),
+            end=native_map.End(),
+            filesize=native_map.FileSize(),
+            offset=native_map.Offset(),
+            device=native_map.Device(),
+            flags=native_map.Flags(),
+            inode=native_map.Inode(),
+            path=pathlib.Path(native_map.Path()) if native_map.Path().size() > 0 else None
+        ))
+    return result
+
+
+def get_memory_maps(pid: int) -> Iterable[VirtualMap]:
+    cdef unique_ptr[AbstractProcessInfo] process_info = AbstractProcessInfo.create()
+    return _cppmaps_to_pymaps(process_info.get().getMemoryMaps(pid))
+
+
+def get_thread_name(pid: int, tid: int) -> str:
+    cdef unique_ptr[AbstractProcessInfo] process_info = AbstractProcessInfo.create()
+    cdef cppstring name = process_info.get().getThreadName(pid, tid)
+    return name
+
+
+def get_executable_path(pid: int) -> str:
+    cdef unique_ptr[AbstractProcessInfo] process_info = AbstractProcessInfo.create()
+    cdef cppstring path = process_info.get().getExecutablePath(pid)
+    return path
+
+
+def parse_proc_maps(content: str) -> list[VirtualMap]:
+    return _cppmaps_to_pymaps(parseProcMaps(content))

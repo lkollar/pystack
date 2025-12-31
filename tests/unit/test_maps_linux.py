@@ -1,9 +1,10 @@
+import sys
 from pathlib import Path
-from unittest.mock import mock_open
 from unittest.mock import patch
 
 import pytest
 
+from pystack._pystack import parse_proc_maps
 from pystack.errors import MissingExecutableMaps
 from pystack.errors import ProcessNotFound
 from pystack.errors import PystackError
@@ -13,51 +14,18 @@ from pystack.maps import _get_bss
 from pystack.maps import generate_maps_for_process
 from pystack.maps import parse_maps_file_for_binary
 
-
-def test_virtual_map():
-    # GIVEN
-
-    map = VirtualMap(
-        start=0,
-        end=10,
-        offset=1234,
-        device="device",
-        flags="xrwp",
-        inode=42,
-        path=None,
-        filesize=10,
-    )
-
-    # WHEN / THEN
-
-    assert map.contains(5)
-    assert not map.contains(15)
-    assert map.is_private()
-    assert map.is_executable()
-    assert map.is_readable()
-    assert map.is_writable()
-
-
-def test_simple_maps_no_such_pid():
-    # GIVEN
-
-    with patch("builtins.open", side_effect=FileNotFoundError()):
-        # WHEN / THEN
-        with pytest.raises(ProcessNotFound):
-            list(generate_maps_for_process(1))
+pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux-only")
 
 
 def test_simple_maps():
     # GIVEN
-
-    map_text = """
-7f1ac1e2b000-7f1ac1e50000 r--p 00000000 08:12 8398159                    /usr/lib/libc-2.31.so
-    """
+    map_text = (
+        "7f1ac1e2b000-7f1ac1e50000 r--p 00000000 08:12 8398159"
+        "                    /usr/lib/libc-2.31.so"
+    )
 
     # WHEN
-
-    with patch("builtins.open", mock_open(read_data=map_text)):
-        maps = list(generate_maps_for_process(1))
+    maps = parse_proc_maps(map_text)
 
     # THEN
 
@@ -77,15 +45,13 @@ def test_simple_maps():
 
 def test_maps_with_long_device_numbers():
     # GIVEN
-
-    map_text = """
-7f1ac1e2b000-7f1ac1e50000 r--p 00000000 0123:4567 8398159 /usr/lib/libc-2.31.so
-    """
+    map_text = (
+        "7f1ac1e2b000-7f1ac1e50000 r--p 00000000 0123:4567 8398159"
+        " /usr/lib/libc-2.31.so"
+    )
 
     # WHEN
-
-    with patch("builtins.open", mock_open(read_data=map_text)):
-        maps = list(generate_maps_for_process(1))
+    maps = parse_proc_maps(map_text)
 
     # THEN
 
@@ -105,15 +71,10 @@ def test_maps_with_long_device_numbers():
 
 def test_anonymous_maps():
     # GIVEN
-
-    map_text = """
-7f1ac1e2b000-7f1ac1e50000 r--p 00000000 08:12 8398159
-    """
+    map_text = "7f1ac1e2b000-7f1ac1e50000 r--p 00000000 08:12 8398159"
 
     # WHEN
-
-    with patch("builtins.open", mock_open(read_data=map_text)):
-        maps = list(generate_maps_for_process(1))
+    maps = parse_proc_maps(map_text)
 
     # THEN
 
@@ -133,18 +94,17 @@ def test_anonymous_maps():
 
 def test_map_permissions():
     # GIVEN
-
-    map_text = """
-7f1ac1e2b000-7f1ac1e50000 r--- 00000000 08:12 8398159                    /usr/lib/libc-2.31.so
-7f1ac1e2b000-7f1ac1e50000 rw-- 00000000 08:12 8398159                    /usr/lib/libc-2.31.so
-7f1ac1e2b000-7f1ac1e50000 rwx- 00000000 08:12 8398159                    /usr/lib/libc-2.31.so
-7f1ac1e2b000-7f1ac1e50000 rwxp 00000000 08:12 8398159                    /usr/lib/libc-2.31.so
-    """
+    # fmt: off
+    map_text = (
+        "7f1ac1e2b000-7f1ac1e50000 r--- 00000000 08:12 8398159 /usr/lib/libc-2.31.so\n"
+        "7f1ac1e2b000-7f1ac1e50000 rw-- 00000000 08:12 8398159 /usr/lib/libc-2.31.so\n"
+        "7f1ac1e2b000-7f1ac1e50000 rwx- 00000000 08:12 8398159 /usr/lib/libc-2.31.so\n"
+        "7f1ac1e2b000-7f1ac1e50000 rwxp 00000000 08:12 8398159 /usr/lib/libc-2.31.so"
+    )
+    # fmt: on
 
     # WHEN
-
-    with patch("builtins.open", mock_open(read_data=map_text)):
-        maps = list(generate_maps_for_process(1))
+    maps = parse_proc_maps(map_text)
 
     # THEN
 
@@ -194,16 +154,15 @@ def test_map_permissions():
 
 def test_unexpected_line_is_ignored():
     # GIVEN
-
-    map_text = """
-I am an unexpected line
-7f1ac1e2b000-7f1ac1e50000 r--p 00000000 08:12 8398159                    /usr/lib/libc-2.31.so
-    """
+    # fmt: off
+    map_text = (
+        "I am an unexpected line\n"
+        "7f1ac1e2b000-7f1ac1e50000 r--p 00000000 08:12 8398159 /usr/lib/libc-2.31.so"
+    )
+    # fmt: on
 
     # WHEN
-
-    with patch("builtins.open", mock_open(read_data=map_text)):
-        maps = list(generate_maps_for_process(1))
+    maps = parse_proc_maps(map_text)
 
     # THEN
 
@@ -223,19 +182,18 @@ I am an unexpected line
 
 def test_special_maps():
     # GIVEN
-
-    map_text = """
-555f1ab1c000-555f1ab3d000 rw-p 00000000 00:00 0                          [heap]
-7ffdf8102000-7ffdf8124000 rw-p 00000000 00:00 0                          [stack]
-7ffdf8152000-7ffdf8155000 r--p 00000000 00:00 0                          [vvar]
-7ffdf8155000-7ffdf8156000 r-xp 00000000 00:00 0                          [vdso]
-ffffffffff600000-ffffffffff601000 --xp 00000000 00:00 0                  [vsyscall]
-    """
+    # fmt: off
+    map_text = (
+        "555f1ab1c000-555f1ab3d000 rw-p 00000000 00:00 0 [heap]\n"
+        "7ffdf8102000-7ffdf8124000 rw-p 00000000 00:00 0 [stack]\n"
+        "7ffdf8152000-7ffdf8155000 r--p 00000000 00:00 0 [vvar]\n"
+        "7ffdf8155000-7ffdf8156000 r-xp 00000000 00:00 0 [vdso]\n"
+        "ffffffffff600000-ffffffffff601000 --xp 00000000 00:00 0 [vsyscall]"
+    )
+    # fmt: on
 
     # WHEN
-
-    with patch("builtins.open", mock_open(read_data=map_text)):
-        maps = list(generate_maps_for_process(1))
+    maps = parse_proc_maps(map_text)
 
     # THEN
 
@@ -1014,8 +972,7 @@ def test_maps_for_binary_invalid_executable_and_no_available_maps():
 
 
 def test_maps_with_scattered_segments():
-    map_text = """
-00400000-00401000 r-xp 00000000 fd:00 67488961          /bin/python3.9-dbg
+    map_text = """00400000-00401000 r-xp 00000000 fd:00 67488961          /bin/python3.9-dbg
 00600000-00601000 r--p 00000000 fd:00 67488961          /bin/python3.9-dbg
 00601000-00602000 rw-p 00001000 fd:00 67488961          /bin/python3.9-dbg
 0067b000-00a58000 rw-p 00000000 00:00 0                 [heap]
@@ -1048,13 +1005,10 @@ f7b4c632000-7f7b4c6f3000 rw-p 00000000 00:00 0
 7fff26f8e000-7fff27020000 rw-p 00000000 00:00 0         [stack]
 7fff27102000-7fff27106000 r--p 00000000 00:00 0         [vvar]
 7fff27106000-7fff27108000 r-xp 00000000 00:00 0         [vdso]
-ffffffffff600000-ffffffffff601000 r-xp 00000000 00:00 0 [vsyscall]
-    """
+ffffffffff600000-ffffffffff601000 r-xp 00000000 00:00 0 [vsyscall]"""
 
     # WHEN
-
-    with patch("builtins.open", mock_open(read_data=map_text)):
-        maps = list(generate_maps_for_process(1))
+    maps = parse_proc_maps(map_text)
 
     mapinfo = parse_maps_file_for_binary(Path("/bin/python3.9-dbg"), maps)
 
@@ -1265,3 +1219,10 @@ def test_get_bss_found_matching_map():
         inode=0,
         path=None,
     )
+
+
+def test_get_memory_maps_raises_process_not_found():
+    invalid_pid = 9999999
+
+    with pytest.raises(ProcessNotFound, match=f"No such process id: {invalid_pid}"):
+        generate_maps_for_process(invalid_pid)

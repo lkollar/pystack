@@ -9,8 +9,7 @@ from typing import Iterable
 from typing import List
 from typing import Optional
 
-from pystack import _pystack
-
+from . import _pystack
 from .errors import MissingExecutableMaps
 from .errors import ProcessNotFound
 from .errors import PystackError
@@ -101,10 +100,8 @@ class MemoryMapInformation:
 def generate_maps_for_process(pid: int) -> Iterable[VirtualMap]:
     try:
         return _pystack.get_memory_maps(pid)
-    except RuntimeError as e:
-        if "No such process" in str(e) or "Failed to open" in str(e):
-            raise ProcessNotFound(f"No such process id: {pid}") from None
-        raise
+    except OSError:
+        raise ProcessNotFound(f"No such process id: {pid}") from None
 
 
 def generate_maps_from_core_data(
@@ -156,8 +153,6 @@ def generate_maps_from_core_data(
 
 
 def parse_maps_file(pid: int, all_maps: Iterable[VirtualMap]) -> MemoryMapInformation:
-    from pystack import _pystack
-
     binary_name = Path(_pystack.get_executable_path(pid))
     return parse_maps_file_for_binary(binary_name, all_maps)
 

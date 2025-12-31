@@ -16,3 +16,7 @@ cdef extern from "platform/process_info.h" namespace "pystack":
 
         @staticmethod
         unique_ptr[AbstractProcessInfo] create() except+
+
+
+cdef extern from "platform/linux/process_info.h" namespace "pystack":
+    vector[CppVirtualMap] parseProcMaps(const cppstring& content) except+
