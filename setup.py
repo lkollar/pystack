@@ -120,8 +120,8 @@ PYSTACK_EXTENSION = setuptools.Extension(
     **library_flags,
 )
 
-PYSTACK_EXTENSION.libraries.append("dl")
 if IS_LINUX:
+    PYSTACK_EXTENSION.libraries.append("dl")
     PYSTACK_EXTENSION.libraries.append("stdc++fs")
 
 
