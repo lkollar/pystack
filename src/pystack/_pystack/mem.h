@@ -12,17 +12,23 @@
 #include <sys/stat.h>
 #include <vector>
 
+#include "analyzer.h"
+
 #ifdef __linux__
 #    include "elf_common.h"
-#elif defined(__APPLE__)
-#    include "platform/darwin/elf_common_stub.h"
 #else
-#    error "Unsupported platform"
+#    ifndef __APPLE__
+#        error "Unsupported platform"
+#    endif
 #endif
 
 namespace pystack {
 
 using file_unique_ptr = std::unique_ptr<FILE, std::function<int(FILE*)>>;
+
+#ifdef __linux__
+class DwflCoreFileAnalyzer;
+#endif
 typedef uintptr_t remote_addr_t;
 
 struct RemoteMemCopyError : public std::exception
@@ -204,7 +210,7 @@ class CorefileRemoteMemoryManager : public AbstractRemoteMemoryManager
   public:
     // Constructors
     explicit CorefileRemoteMemoryManager(
-            std::shared_ptr<CoreFileAnalyzer> analyzer,
+            std::shared_ptr<AbstractCoreFileAnalyzer> analyzer,
             std::vector<VirtualMap>& vmaps);
 
     // Methods
@@ -231,7 +237,8 @@ class CorefileRemoteMemoryManager : public AbstractRemoteMemoryManager
 #    endif
 
     // Data members
-    std::shared_ptr<CoreFileAnalyzer> d_analyzer;
+    std::shared_ptr<AbstractCoreFileAnalyzer> d_analyzer;
+    std::shared_ptr<DwflCoreFileAnalyzer> d_dwfl_analyzer;
     std::vector<VirtualMap> d_vmaps;
     std::vector<SimpleVirtualMap> d_shared_libs;
     size_t d_corefile_size;

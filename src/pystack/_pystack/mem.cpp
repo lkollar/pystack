@@ -16,6 +16,10 @@
 #include "logging.h"
 #include "mem.h"
 
+#ifdef __linux__
+#    include "platform/linux/analyzer.h"
+#endif
+
 namespace pystack {
 
 #ifdef __linux__
@@ -341,15 +345,20 @@ ProcessMemoryManager::isAddressValid(remote_addr_t addr, const VirtualMap& map) 
 
 #ifdef __linux__
 CorefileRemoteMemoryManager::CorefileRemoteMemoryManager(
-        std::shared_ptr<CoreFileAnalyzer> analyzer,
+        std::shared_ptr<AbstractCoreFileAnalyzer> analyzer,
         std::vector<VirtualMap>& vmaps)
 : d_analyzer(std::move(analyzer))
 , d_vmaps(vmaps)
 {
+    d_dwfl_analyzer = std::dynamic_pointer_cast<DwflCoreFileAnalyzer>(d_analyzer);
+    if (!d_dwfl_analyzer) {
+        throw RemoteMemCopyError();
+    }
+
     CoreFileExtractor extractor{d_analyzer};
     d_shared_libs = extractor.ModuleInformation();
 
-    const char* filename = d_analyzer->d_filename.c_str();
+    const char* filename = d_dwfl_analyzer->getFilename().c_str();
     int fd = open(filename, O_RDONLY);
 
     if (fd == -1) {
@@ -397,7 +406,7 @@ CorefileRemoteMemoryManager::readCorefile(int fd, const char* filename) noexcept
             reinterpret_cast<char*>(map),
             [this](auto addr) {
                 if (munmap(addr, d_corefile_size) == -1) {
-                    LOG(ERROR) << "Failed to un-mmap a file " << d_analyzer->d_filename.c_str();
+                    LOG(ERROR) << "Failed to un-mmap a file " << d_dwfl_analyzer->getFilename().c_str();
                 }
             });
 

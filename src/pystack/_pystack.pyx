@@ -18,9 +18,9 @@ from typing import TypeVar
 from cython.operator import dereference
 from cython.operator import postincrement
 
+from _pystack.analyzer cimport AbstractCoreFileAnalyzer as NativeCoreFileAnalyzer
+from _pystack.analyzer cimport AbstractProcessAnalyzer as NativeProcessAnalyzer
 from _pystack.corefile cimport CoreFileExtractor
-from _pystack.elf_common cimport CoreFileAnalyzer as NativeCoreFileAnalyzer
-from _pystack.elf_common cimport ProcessAnalyzer as NativeProcessAnalyzer
 from _pystack.logging cimport initializePythonLoggerInterface
 from _pystack.mem cimport AbstractRemoteMemoryManager
 from _pystack.mem cimport MemoryMapInformation as CppMemoryMapInformation
@@ -47,6 +47,7 @@ from libcpp.memory cimport make_shared
 from libcpp.memory cimport make_unique
 from libcpp.memory cimport shared_ptr
 from libcpp.memory cimport unique_ptr
+from libcpp.optional cimport optional
 from libcpp.string cimport string as cppstring
 from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector
@@ -211,20 +212,20 @@ def process_exists(pid):
 cdef shared_ptr[NativeCoreFileAnalyzer] get_core_analyzer(
     core_file, executable=None, lib_search_path=None
 ) except *:
-    cdef shared_ptr[NativeCoreFileAnalyzer] analyzer;
+    cdef shared_ptr[NativeCoreFileAnalyzer] analyzer
     cdef cppstring the_core_file, the_executable, the_lib_search_path
+    cdef optional[cppstring] opt_executable = optional[cppstring]()
+    cdef optional[cppstring] opt_lib_search_path = optional[cppstring]()
+
     the_core_file = str(core_file)
-    if executable is not None and lib_search_path is not None:
+    if executable is not None:
         the_executable = str(executable)
+        opt_executable = optional[cppstring](the_executable)
+    if lib_search_path is not None:
         the_lib_search_path = str(lib_search_path)
-        analyzer = make_shared[NativeCoreFileAnalyzer](
-            the_core_file, the_executable, the_lib_search_path
-        )
-    elif executable is not None and lib_search_path is None:
-        the_executable = str(executable)
-        analyzer = make_shared[NativeCoreFileAnalyzer](the_core_file, the_executable)
-    else:
-        analyzer = make_shared[NativeCoreFileAnalyzer](the_core_file)
+        opt_lib_search_path = optional[cppstring](the_lib_search_path)
+
+    analyzer = NativeCoreFileAnalyzer.create(the_core_file, opt_executable, opt_lib_search_path)
     return analyzer
 
 
@@ -328,9 +329,7 @@ cdef class ProcessManager:
         virtual_maps = list(generate_maps_for_process(pid))
         map_info = parse_maps_file(pid, virtual_maps)
 
-        cdef shared_ptr[NativeProcessAnalyzer] analyzer = make_shared[
-            NativeProcessAnalyzer
-        ](pid)
+        cdef shared_ptr[NativeProcessAnalyzer] analyzer = NativeProcessAnalyzer.create(pid)
         cdef shared_ptr[AbstractProcessManager] native_manager = <shared_ptr[AbstractProcessManager]> (
             make_shared[NativeProcessManager](
                 pid, tracer, analyzer,

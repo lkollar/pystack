@@ -10,6 +10,7 @@
 #include "elf_common.h"
 #include "libelf.h"
 #include "logging.h"
+#include "platform/linux/analyzer.h"
 #include <csignal>
 #include <gelf.h>
 #include <sys/procfs.h>
@@ -81,11 +82,11 @@ CoreFileExtractor::populateMaps()
     LOG(DEBUG) << "Populating memory maps for core file";
     /* Check that we are working with a coredump. */
     GElf_Ehdr ehdr;
-    if (gelf_getehdr(d_analyzer->d_elf.get(), &ehdr) == nullptr || ehdr.e_type != ET_CORE) {
+    if (gelf_getehdr(d_dwfl_analyzer->getElf().get(), &ehdr) == nullptr || ehdr.e_type != ET_CORE) {
         throw CoreAnalyzerError("The file is not a coredump!");
     }
 
-    if (dwfl_getmodules(d_analyzer->d_dwfl.get(), module_callback, &d_module_info, 0) != 0) {
+    if (dwfl_getmodules(d_dwfl_analyzer->getDwfl().get(), module_callback, &d_module_info, 0) != 0) {
         throw CoreAnalyzerError("Failed to fetch modules!");
     }
 
@@ -96,7 +97,7 @@ CoreFileExtractor::populateMaps()
     });
 
     size_t nphdr;
-    if (elf_getphdrnum(d_analyzer->d_elf.get(), &nphdr) != 0) {
+    if (elf_getphdrnum(d_dwfl_analyzer->getElf().get(), &nphdr) != 0) {
         throw CoreAnalyzerError("Failed to get program headers");
     }
 
@@ -107,7 +108,7 @@ CoreFileExtractor::populateMaps()
 
     for (size_t i = 0; i < nphdr; i++) {
         GElf_Phdr phdr;
-        if (gelf_getphdr(d_analyzer->d_elf.get(), i, &phdr) != &phdr) {
+        if (gelf_getphdr(d_dwfl_analyzer->getElf().get(), i, &phdr) != &phdr) {
             continue;
         }
 
@@ -146,9 +147,13 @@ CoreFileExtractor::populateMaps()
     }
 }
 
-CoreFileExtractor::CoreFileExtractor(std::shared_ptr<CoreFileAnalyzer> analyzer)
+CoreFileExtractor::CoreFileExtractor(std::shared_ptr<AbstractCoreFileAnalyzer> analyzer)
 : d_analyzer(std::move(analyzer))
 {
+    d_dwfl_analyzer = std::dynamic_pointer_cast<DwflCoreFileAnalyzer>(d_analyzer);
+    if (!d_dwfl_analyzer) {
+        throw CoreAnalyzerError("Core file analyzer is not supported on this platform");
+    }
     populateMaps();
 }
 
@@ -167,7 +172,7 @@ CoreFileExtractor::ModuleInformation() const
 pid_t
 CoreFileExtractor::Pid() const
 {
-    return d_analyzer->d_pid;
+    return d_dwfl_analyzer->getPid();
 }
 
 std::string
@@ -192,7 +197,7 @@ CoreFileExtractor::extractExecutable() const
     }
 
     unsigned long location = addr - it->start + it->offset;
-    std::ifstream is(d_analyzer->d_filename, std::ifstream::binary);
+    std::ifstream is(d_dwfl_analyzer->getFilename(), std::ifstream::binary);
     if (!is) {
         throw ElfAnalyzerError("Failed to open the core file for analysis");
     }
@@ -335,7 +340,7 @@ parseCoreFileNote(Elf* core, const NoteData& note_data, std::vector<CoreVirtualM
 const std::vector<CoreVirtualMap>
 CoreFileExtractor::extractMappedFiles() const
 {
-    Elf* elf = d_analyzer->d_elf.get();
+    Elf* elf = d_dwfl_analyzer->getElf().get();
     std::vector<CoreVirtualMap> result;
     LOG(DEBUG) << "Extracting mapped files from core file note";
 
@@ -352,7 +357,7 @@ CoreFileExtractor::extractMappedFiles() const
 CoreCrashInfo
 CoreFileExtractor::extractFailureInfo() const
 {
-    Elf* elf = d_analyzer->d_elf.get();
+    Elf* elf = d_dwfl_analyzer->getElf().get();
     CoreCrashInfo result{};
 
     LOG(DEBUG) << "Extracting failure info structure";
@@ -381,7 +386,7 @@ CoreFileExtractor::extractFailureInfo() const
 CorePsInfo
 CoreFileExtractor::extractPSInfo() const
 {
-    Elf* elf = d_analyzer->d_elf.get();
+    Elf* elf = d_dwfl_analyzer->getElf().get();
     CorePsInfo result{};
     LOG(DEBUG) << "Extracting PSInfo structure";
 
@@ -420,7 +425,7 @@ CoreFileExtractor::findExecFn() const
     // If we have section headers, look for SHT_NOTE sections.
     // In a core file, the program headers may not be reliable.
 
-    Elf* elf = d_analyzer->d_elf.get();
+    Elf* elf = d_dwfl_analyzer->getElf().get();
     uintptr_t result = 0;
     size_t shnum;
 
@@ -465,7 +470,7 @@ CoreFileExtractor::findExecFn() const
 std::vector<std::string>
 CoreFileExtractor::missingModules() const
 {
-    return d_analyzer->d_missing_modules;
+    return d_analyzer->getMissingModules();
 }
 
 }  // namespace pystack

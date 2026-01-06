@@ -1,6 +1,6 @@
 from posix.types cimport pid_t
 
-from _pystack.elf_common cimport CoreFileAnalyzer
+from _pystack.analyzer cimport AbstractCoreFileAnalyzer
 from _pystack.mem cimport SimpleVirtualMap
 from libc.stdint cimport uintptr_t
 from libcpp.memory cimport shared_ptr
@@ -44,7 +44,7 @@ cdef extern from "corefile.h" namespace "pystack":
         cppstring buildid
 
     cdef cppclass CoreFileExtractor:
-        CoreFileExtractor(shared_ptr[CoreFileAnalyzer] analyzer) except+
+        CoreFileExtractor(shared_ptr[AbstractCoreFileAnalyzer] analyzer) except+
         int Pid() except+
         vector[CoreVirtualMap] MemoryMaps() except+
         vector[SimpleVirtualMap] ModuleInformation() except+

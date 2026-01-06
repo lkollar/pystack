@@ -11,21 +11,14 @@
 #include <utility>
 #include <vector>
 
-#include "elf_common.h"
+#include "analyzer.h"
 #include "mem.h"
 #include "native_frame.h"
+#include "platform/abstract_tracer.h"
 #include "platform/binary_analyzer.h"
 #include "pycompat.h"
 #include "unwinder.h"
 #include "version.h"
-
-#ifdef __linux__
-#    include "platform/linux/binary_analyzer.h"
-#    include "platform/linux/tracer.h"
-#elif defined(__APPLE__)
-#    include "platform/darwin/binary_analyzer.h"
-#    include "platform/darwin/tracer.h"
-#endif
 
 namespace pystack {
 
@@ -95,7 +88,7 @@ class AbstractProcessManager : public std::enable_shared_from_this<AbstractProce
     std::unique_ptr<AbstractRemoteMemoryManager> d_manager;
     std::unique_ptr<AbstractUnwinder> d_unwinder;
     mutable std::unordered_map<std::string, remote_addr_t> d_symbol_cache;
-    std::shared_ptr<Analyzer> d_analyzer;
+    std::shared_ptr<AbstractAnalyzer> d_analyzer;
     int d_major{};
     int d_minor{};
     const python_v* d_py_v{};
@@ -135,7 +128,7 @@ class ProcessManager : public AbstractProcessManager
     ProcessManager(
             pid_t pid,
             const std::shared_ptr<AbstractProcessTracer>& tracer,
-            const std::shared_ptr<ProcessAnalyzer>& analyzer,
+            const std::shared_ptr<AbstractProcessAnalyzer>& analyzer,
             std::vector<VirtualMap> memory_maps,
             MemoryMapInformation map_info);
 
@@ -157,7 +150,7 @@ class CoreFileProcessManager : public AbstractProcessManager
     // Constructors
     CoreFileProcessManager(
             pid_t pid,
-            const std::shared_ptr<CoreFileAnalyzer>& analyzer,
+            const std::shared_ptr<AbstractCoreFileAnalyzer>& analyzer,
             std::vector<VirtualMap> memory_maps,
             MemoryMapInformation map_info);
 

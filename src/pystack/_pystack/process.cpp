@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <memory>
 
+#include <filesystem>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -469,12 +471,38 @@ remote_addr_t
 AbstractProcessManager::findSymbol(const std::string& symbol) const
 {
     const auto elem = d_symbol_cache.find(symbol);
-    if (elem == d_symbol_cache.cend()) {
-        remote_addr_t addr = d_unwinder->getAddressforSymbol(symbol, d_main_map.value().Path());
-        d_symbol_cache.emplace(symbol, addr);
-        return addr;
+    if (elem != d_symbol_cache.cend()) {
+        return elem->second;
     }
-    return elem->second;
+
+    if (!d_main_map) {
+        return 0;
+    }
+
+    std::optional<ModuleInfo> module_info = std::nullopt;
+    const auto main_path = d_main_map.value().Path();
+    const auto main_name = std::filesystem::path(main_path).filename().string();
+    for (const auto& module : d_analyzer->getModules()) {
+        if (module.path == main_path || module.name == main_name) {
+            module_info = module;
+            break;
+        }
+        if (!module.path.empty() && std::filesystem::path(module.path).filename().string() == main_name)
+        {
+            module_info = module;
+            break;
+        }
+    }
+
+    if (!module_info) {
+        d_symbol_cache.emplace(symbol, 0);
+        return 0;
+    }
+
+    const auto address = d_analyzer->getSymbolAddress(symbol, module_info.value());
+    remote_addr_t resolved = address.has_value() ? address.value() : 0;
+    d_symbol_cache.emplace(symbol, resolved);
+    return resolved;
 }
 
 remote_addr_t
@@ -1173,25 +1201,46 @@ AbstractProcessManager::findPyRuntimeFromElfData() const
 {
     LOG(INFO) << "Trying to resolve PyInterpreterState from Elf data";
 
-#ifdef __linux__
-    ElfBinaryAnalyzer binary(d_main_map.value().Path(), d_analyzer->getDwfl());
-    auto section = binary.findSection(".PyRuntime");
+    if (!d_main_map) {
+        LOG(INFO) << "Failed to resolve PyInterpreterState because main map is missing";
+        return 0;
+    }
+
+    auto binary = AbstractBinaryAnalyzer::create(d_main_map.value().Path());
+    auto section = binary->findSection(".PyRuntime");
     if (!section) {
         LOG(INFO) << "Failed to resolve PyInterpreterState from Elf data because .PyRuntime section "
                      "could not be found";
         return 0;
     }
-    remote_addr_t load_addr = binary.getLoadPoint();
+
+    std::optional<ModuleInfo> module_info = std::nullopt;
+    const auto main_path = d_main_map.value().Path();
+    const auto main_name = std::filesystem::path(main_path).filename().string();
+    for (const auto& module : d_analyzer->getModules()) {
+        if (module.path == main_path || module.name == main_name) {
+            module_info = module;
+            break;
+        }
+        if (!module.path.empty() && std::filesystem::path(module.path).filename().string() == main_name)
+        {
+            module_info = module;
+            break;
+        }
+    }
+
+    if (!module_info) {
+        LOG(INFO) << "Failed to resolve PyInterpreterState from Elf data because module was not found";
+        return 0;
+    }
+
+    remote_addr_t load_addr = d_analyzer->getModuleLoadPoint(module_info.value());
     if (load_addr == 0) {
         LOG(INFO) << "Failed to resolve PyInterpreterState from Elf data because module load point "
                      "could not be found";
         return 0;
     }
     return load_addr + section->corrected_addr;
-#else
-    LOG(INFO) << "findPyRuntimeFromElfData not implemented on this platform";
-    return 0;
-#endif
 }
 
 remote_addr_t
@@ -1237,20 +1286,23 @@ AbstractProcessManager::findInterpreterStateFromDebugOffsets() const
 ProcessManager::ProcessManager(
         pid_t pid,
         const std::shared_ptr<AbstractProcessTracer>& tracer,
-        const std::shared_ptr<ProcessAnalyzer>& analyzer,
+        const std::shared_ptr<AbstractProcessAnalyzer>& analyzer,
         std::vector<VirtualMap> memory_maps,
         MemoryMapInformation map_info)
 : AbstractProcessManager(pid, std::move(memory_maps), std::move(map_info))
 , tracer(tracer)
+, d_tids(tracer->getTids())
 {
-    if (!tracer) {
-        throw std::runtime_error("ProcessManager requires a tracer");
-    }
-    d_tids = tracer->getTids();
-    d_manager = std::make_unique<ProcessMemoryManager>(pid, d_memory_maps);
     d_analyzer = analyzer;
-#ifdef __linux__
     d_unwinder = std::make_unique<Unwinder>(analyzer);
+    d_manager = std::make_unique<ProcessMemoryManager>(pid, d_memory_maps);
+}
+
+d_tids = tracer->getTids();
+d_manager = std::make_unique<ProcessMemoryManager>(pid, d_memory_maps);
+d_analyzer = analyzer;
+#ifdef __linux__
+d_unwinder = std::make_unique<Unwinder>(analyzer);
 #endif
 }
 
@@ -1263,17 +1315,27 @@ ProcessManager::Tids() const
 #ifdef __linux__
 CoreFileProcessManager::CoreFileProcessManager(
         pid_t pid,
-        const std::shared_ptr<CoreFileAnalyzer>& analyzer,
+        const std::shared_ptr<AbstractCoreFileAnalyzer>& analyzer,
         std::vector<VirtualMap> memory_maps,
         MemoryMapInformation map_info)
 : AbstractProcessManager(pid, std::move(memory_maps), std::move(map_info))
 {
     d_analyzer = analyzer;
+    d_unwinder = std::make_unique<CoreFileUnwinder>(analyzer);
     d_manager = std::make_unique<CorefileRemoteMemoryManager>(analyzer, d_memory_maps);
-    d_executable = analyzer->d_executable;
-    std::unique_ptr<CoreFileUnwinder> the_unwinder = std::make_unique<CoreFileUnwinder>(analyzer);
-    d_tids = the_unwinder->getCoreTids();
-    d_unwinder = std::move(the_unwinder);
+
+    auto maps = generate_maps_from_core_data(shared_from_this());
+    for (const auto& map : maps) {
+        d_memory_maps.emplace_back(
+                map.start,
+                map.end,
+                map.filesize,
+                map.flags,
+                map.offset,
+                map.device,
+                map.inode,
+                map.path);
+    }
 }
 
 const std::vector<int>&

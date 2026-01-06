@@ -1,5 +1,5 @@
-from _pystack.elf_common cimport CoreFileAnalyzer
-from _pystack.elf_common cimport ProcessAnalyzer
+from _pystack.analyzer cimport AbstractCoreFileAnalyzer
+from _pystack.analyzer cimport AbstractProcessAnalyzer
 from _pystack.mem cimport MemoryMapInformation
 from _pystack.mem cimport VirtualMap
 from _pystack.mem cimport remote_addr_t
@@ -38,7 +38,7 @@ cdef extern from "process.h" namespace "pystack":
         void setPythonVersionFromDebugOffsets() except +
 
     cdef cppclass ProcessManager(AbstractProcessManager):
-        ProcessManager(int pid, shared_ptr[AbstractProcessTracer] tracer, shared_ptr[ProcessAnalyzer] analyzer, vector[VirtualMap] memory_maps, MemoryMapInformation map_info) except+
+        ProcessManager(int pid, shared_ptr[AbstractProcessTracer] tracer, shared_ptr[AbstractProcessAnalyzer] analyzer, vector[VirtualMap] memory_maps, MemoryMapInformation map_info) except+
 
     cdef cppclass CoreFileProcessManager(AbstractProcessManager):
-        CoreFileProcessManager(int pid, shared_ptr[CoreFileAnalyzer] analyzer, vector[VirtualMap] memory_maps, MemoryMapInformation map_info) except+
+        CoreFileProcessManager(int pid, shared_ptr[AbstractCoreFileAnalyzer] analyzer, vector[VirtualMap] memory_maps, MemoryMapInformation map_info) except+

@@ -4,12 +4,14 @@
 #include <memory>
 #include <vector>
 
-#include "elf_common.h"
+#include "analyzer.h"
 #include "mem.h"
 
 namespace pystack {
 
 #ifdef __linux__
+
+class DwflCoreFileAnalyzer;
 
 struct CoreCrashInfo
 {
@@ -75,7 +77,7 @@ class CoreFileExtractor
 {
   public:
     // Constructors
-    explicit CoreFileExtractor(std::shared_ptr<CoreFileAnalyzer> analyzer);
+    explicit CoreFileExtractor(std::shared_ptr<AbstractCoreFileAnalyzer> analyzer);
 
     // Methods
     std::vector<CoreVirtualMap> MemoryMaps() const;
@@ -89,7 +91,8 @@ class CoreFileExtractor
 
   private:
     // Data members
-    std::shared_ptr<CoreFileAnalyzer> d_analyzer;
+    std::shared_ptr<AbstractCoreFileAnalyzer> d_analyzer;
+    std::shared_ptr<DwflCoreFileAnalyzer> d_dwfl_analyzer;
     std::vector<SimpleVirtualMap> d_module_info;
     std::vector<CoreVirtualMap> d_maps;
 
@@ -146,7 +149,7 @@ struct CoreVirtualMap
 class CoreFileExtractor
 {
   public:
-    explicit CoreFileExtractor(std::shared_ptr<CoreFileAnalyzer> /* analyzer */)
+    explicit CoreFileExtractor(std::shared_ptr<AbstractCoreFileAnalyzer> /* analyzer */)
     {
         throw std::runtime_error("CoreFileExtractor not implemented on macOS");
     }

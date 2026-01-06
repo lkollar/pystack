@@ -21,13 +21,6 @@ using file_unique_ptr = std::unique_ptr<FILE, std::function<int(FILE*)>>;
 
 ElfBinaryAnalyzer::ElfBinaryAnalyzer(const std::string& path)
 : d_path(path)
-, d_dwfl(nullptr)
-{
-}
-
-ElfBinaryAnalyzer::ElfBinaryAnalyzer(const std::string& path, const dwfl_unique_ptr& dwfl)
-: d_path(path)
-, d_dwfl(&dwfl)
 {
 }
 
@@ -120,62 +113,6 @@ ElfBinaryAnalyzer::findSection(const std::string& section_name) const
         }
     }
     return std::nullopt;
-}
-
-namespace {
-
-int
-module_callback(
-        Dwfl_Module* mod,
-        void** userdata __attribute__((unused)),
-        const char* name __attribute__((unused)),
-        Dwarf_Addr starty __attribute__((unused)),
-        void* arg)
-{
-    auto args = static_cast<std::pair<uintptr_t, const std::string&>*>(arg);
-    if (args->first != 0) {
-        return DWARF_CB_OK;
-    }
-
-    Dwarf_Addr start;
-    Dwarf_Addr end;
-    const char* mainfile;
-    const char* debugfile;
-    const char* modname =
-            dwfl_module_info(mod, nullptr, &start, &end, nullptr, nullptr, &mainfile, &debugfile);
-    if (mainfile != nullptr) {
-        modname = mainfile;
-    } else if (debugfile != nullptr) {
-        modname = debugfile;
-    }
-
-    if (args->second == modname) {
-        args->first = start;
-        return DWARF_CB_ABORT;
-    }
-
-    return DWARF_CB_OK;
-}
-
-}  // anonymous namespace
-
-uintptr_t
-ElfBinaryAnalyzer::getLoadPoint() const
-{
-    if (!d_dwfl) {
-        LOG(ERROR) << "Cannot get load point without DWFL handle";
-        return 0;
-    }
-
-    LOG(DEBUG) << "Finding load point of binary " << d_path;
-    auto args = std::pair<uintptr_t, const std::string&>(0, d_path);
-
-    if (::dwfl_getmodules(reinterpret_cast<::Dwfl*>(d_dwfl->get()), module_callback, &args, 0) == -1) {
-        LOG(ERROR) << "Failed to obtain load point of binary " << d_path;
-        return 0;
-    }
-    LOG(DEBUG) << "Load point of module found at " << std::hex << std::showbase << args.first;
-    return args.first;
 }
 
 // getBuildId is implemented in elf_common.cpp and used by both corefile.cpp and ElfBinaryAnalyzer

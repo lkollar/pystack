@@ -4,7 +4,6 @@
 #include <fcntl.h>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <stdexcept>
 #include <unistd.h>
 
@@ -40,65 +39,6 @@ class ElfAnalyzerError : public std::exception
 using dwfl_unique_ptr = std::unique_ptr<Dwfl, std::function<void(Dwfl*)>>;
 using elf_unique_ptr = std::unique_ptr<Elf, std::function<void(Elf*)>>;
 
-class Analyzer
-{
-    // Methods
-  public:
-    virtual const dwfl_unique_ptr& getDwfl() const = 0;
-};
-
-class CoreFileAnalyzer : public Analyzer
-{
-  public:
-    // Constructors
-    explicit CoreFileAnalyzer(
-            std::string corefile,
-            std::optional<std::string> executable = std::nullopt,
-            const std::optional<std::string>& lib_search_path = std::nullopt);
-
-    // Methods
-    const dwfl_unique_ptr& getDwfl() const override;
-    std::string locateLibrary(const std::string& lib) const;
-
-    // Destructors
-    virtual ~CoreFileAnalyzer();
-
-    // Data members
-    dwfl_unique_ptr d_dwfl;
-    char* d_debuginfo_path;
-    Dwfl_Callbacks d_callbacks;
-    std::string d_filename;
-    std::optional<std::string> d_executable;
-    std::optional<std::string> d_lib_search_path;
-    int d_fd;
-    int d_pid;
-    elf_unique_ptr d_elf;
-    std::vector<std::string> d_missing_modules{};
-
-  private:
-    void removeModuleIf(std::function<bool(Dwfl_Module*)> predicate) const;
-    void resolveLibraries();
-};
-
-class ProcessAnalyzer : public Analyzer
-{
-  public:
-    // Constructors
-    explicit ProcessAnalyzer(pid_t pid);
-
-    // Destructors
-    virtual ~ProcessAnalyzer() = default;
-
-    // Methods
-    const dwfl_unique_ptr& getDwfl() const override;
-
-    // Data members
-    dwfl_unique_ptr d_dwfl;
-    char* d_debuginfo_path;
-    Dwfl_Callbacks d_callbacks;
-    int d_pid;
-};
-
 // Utility functions for accessing NOTE sections
 
 struct NoteData
@@ -121,7 +61,3 @@ getBuildId(const std::string& filename);
 
 }  // namespace pystack
 #endif  // __linux__
-
-#ifdef __APPLE__
-#    include "platform/darwin/elf_common_stub.h"
-#endif

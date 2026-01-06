@@ -55,247 +55,6 @@ parse_permissions(long flags)
     return perms;
 }
 
-CoreFileAnalyzer::CoreFileAnalyzer(
-        std::string corefile,
-        std::optional<std::string> executable,
-        const std::optional<std::string>& lib_search_path)
-: d_dwfl(nullptr)
-, d_debuginfo_path(nullptr)
-, d_callbacks()
-, d_filename(std::move(corefile))
-, d_executable(std::move(executable))
-, d_lib_search_path(std::move(lib_search_path))
-, d_fd(0)
-, d_elf(nullptr)
-{
-    if (elf_version(EV_CURRENT) == EV_NONE) {
-        throw ElfAnalyzerError("libelf library ELF version too old");
-    }
-
-    d_fd = open(d_filename.c_str(), O_RDONLY);
-    if (d_fd == -1) {
-        throw ElfAnalyzerError(
-                "Failed to open ELF file '" + d_filename + "' (" + std::strerror(errno) + ")");
-    }
-
-    d_elf = elf_unique_ptr(elf_begin(d_fd, ELF_C_READ_MMAP, nullptr), elf_end);
-    if (!d_elf) {
-        close(d_fd);
-        throw ElfAnalyzerError("Cannot read elf file");
-    }
-
-    std::memset(&d_callbacks, 0, sizeof(d_callbacks));
-    d_callbacks.find_elf = pystack_find_elf;
-    d_callbacks.find_debuginfo = dwfl_standard_find_debuginfo;
-    d_callbacks.debuginfo_path = &d_debuginfo_path;
-
-    d_dwfl = dwfl_unique_ptr(dwfl_begin(&d_callbacks), dwfl_end);
-
-    if (!d_dwfl) {
-        throw ElfAnalyzerError("Failed to initialize core analyzer");
-    }
-
-    const char* the_executable = d_executable.has_value() ? d_executable.value().c_str() : nullptr;
-
-    if (dwfl_core_file_report(d_dwfl.get(), d_elf.get(), the_executable) < 0
-        || dwfl_report_end(d_dwfl.get(), nullptr, nullptr) != 0)
-    {
-        throw ElfAnalyzerError(
-                "Failed to analyze DWARF information for the core file. '" + d_filename
-                + "' doesn't look like a valid core file.");
-    }
-
-    resolveLibraries();
-
-    int result = dwfl_core_file_attach(d_dwfl.get(), d_elf.get());
-    if (result < 0) {
-        throw ElfAnalyzerError(
-                "Could not attach the core map analyzer. '" + d_filename
-                + "' doesn't look like a valid core file.");
-    }
-    d_pid = result;
-}
-
-CoreFileAnalyzer::~CoreFileAnalyzer()
-{
-    close(d_fd);
-}
-
-void
-CoreFileAnalyzer::removeModuleIf(std::function<bool(Dwfl_Module*)> predicate) const
-{
-    using Predicate = decltype(predicate);
-    struct CallbackArgs
-    {
-        Dwfl* dwfl;
-        Predicate& predicate;
-    } callback_args = {d_dwfl.get(), predicate};
-
-    // Remove all modules, except for any that the callback re-adds.
-    dwfl_report_begin(d_dwfl.get());
-
-    int const rc = dwfl_report_end(
-            d_dwfl.get(),
-            [](Dwfl_Module* mod, void*, const char* name, Dwarf_Addr start, void* arg) -> int {
-                auto& callback_args = *static_cast<CallbackArgs*>(arg);
-                if (!callback_args.predicate(mod)) {
-                    Dwarf_Addr end;
-                    dwfl_module_info(mod, nullptr, nullptr, &end, nullptr, nullptr, nullptr, nullptr);
-                    if (!dwfl_report_module(callback_args.dwfl, name, start, end)) {
-                        throw ElfAnalyzerError(
-                                std::string("Unexpected error retaining DWARF module: ")
-                                + dwfl_errmsg(dwfl_errno()));
-                    }
-                }
-                return 0;
-            },
-            &callback_args);
-
-    if (0 != rc) {
-        throw ElfAnalyzerError(
-                std::string("Unexpected error while filtering DWARF modules: ")
-                + dwfl_errmsg(dwfl_errno()));
-    }
-}
-
-void
-CoreFileAnalyzer::resolveLibraries()
-{
-    struct RemappedModule
-    {
-        std::string modname;
-        std::string path;
-        GElf_Addr addr;
-    };
-    std::vector<RemappedModule> remapped_modules;
-
-    LOG(DEBUG) << "Searching for missing and mismapped modules";
-    removeModuleIf([this, &remapped_modules](Dwfl_Module* mod) -> bool {
-        Dwarf_Addr start, end;
-        const char* path;
-        const char* modname =
-                dwfl_module_info(mod, nullptr, &start, &end, nullptr, nullptr, &path, nullptr);
-        if (!path) {
-            path = modname;
-        }
-
-        std::string located_path;
-        bool searched;
-        if (!d_executable || !d_lib_search_path) {
-            located_path = path;
-            searched = false;
-        } else {
-            located_path = locateLibrary(path);
-            searched = true;
-        }
-        bool const located_path_exists = fs::exists(located_path);
-
-        if (!located_path_exists) {
-            LOG(DEBUG) << "Adding " << path << " as a missing module "
-                       << (searched ? "despite" : "without") << " a search";
-            d_missing_modules.emplace_back(located_path);
-        }
-
-        if (located_path_exists && located_path != path) {
-            std::string const filename = std::filesystem::path(located_path).filename().string();
-            remapped_modules.push_back({filename, located_path, start});
-            LOG(DEBUG) << "Dropping module " << path << " spanning from " << std::hex << std::showbase
-                       << start << " to " << end << " so that it can be remapped from " << located_path;
-            return true;
-        } else {
-            LOG(DEBUG) << "Retaining module " << path << " spanning from " << std::hex << std::showbase
-                       << start << " to " << end;
-            return false;
-        }
-    });
-
-    LOG(DEBUG) << "Re-adding " << remapped_modules.size()
-               << " mismapped modules with corrected locations";
-    for (const auto& module : remapped_modules) {
-        if (!dwfl_report_elf(
-                    d_dwfl.get(),
-                    module.modname.c_str(),
-                    module.path.c_str(),
-                    -1,
-                    module.addr,
-                    false))
-        {
-            LOG(ERROR) << "Failed to report module " << module.modname << ": "
-                       << dwfl_errmsg(dwfl_errno());
-            throw ElfAnalyzerError("Failed to report ELF modules for core file");
-        } else {
-            LOG(DEBUG) << "Reported module " << module.modname << " with path " << module.path
-                       << " starting at " << std::hex << std::showbase << module.addr;
-        }
-    }
-
-    LOG(DEBUG) << "Completing reporting of modules";
-    if (dwfl_report_end(d_dwfl.get(), nullptr, nullptr) != 0) {
-        throw ElfAnalyzerError(
-                std::string("Unexpected error from dwfl_report_end: ") + dwfl_errmsg(dwfl_errno()));
-    }
-}
-
-std::string
-CoreFileAnalyzer::locateLibrary(const std::string& lib) const
-{
-    if (!d_lib_search_path) {
-        return lib;
-    }
-    LOG(DEBUG) << "Searching for module: " << lib;
-    std::string dir_to_consider;
-    const fs::path target{lib};
-    std::stringstream stream{d_lib_search_path.value()};
-    while (std::getline(stream, dir_to_consider, ':')) {
-        if (!fs::exists(dir_to_consider) || !fs::is_directory(dir_to_consider)) {
-            continue;
-        }
-        for (const auto& entry : fs::directory_iterator(dir_to_consider)) {
-            if (entry.path().filename() != target.filename()) {
-                continue;
-            }
-            if (fs::is_regular_file(entry)) {
-                LOG(DEBUG) << "Module " << lib << " found at " << entry.path().string();
-                return entry.path().string();
-            }
-        }
-    }
-    LOG(DEBUG) << "Could not locate module " << lib << " in the search path";
-    return lib;
-}
-
-ProcessAnalyzer::ProcessAnalyzer(pid_t pid)
-: d_dwfl(nullptr)
-, d_debuginfo_path(nullptr)
-, d_callbacks()
-, d_pid(pid)
-{
-    memset(&d_callbacks, 0, sizeof(d_callbacks));
-    d_callbacks.find_elf = pystack_find_elf;
-    d_callbacks.find_debuginfo = dwfl_standard_find_debuginfo;
-    d_callbacks.debuginfo_path = &d_debuginfo_path;
-
-    d_dwfl = dwfl_unique_ptr(dwfl_begin(&d_callbacks), dwfl_end);
-
-    if (!d_dwfl) {
-        throw ElfAnalyzerError("Failed to initialize DWARF analyzer");
-    }
-
-    if (dwfl_linux_proc_report(d_dwfl.get(), pid) || dwfl_report_end(d_dwfl.get(), nullptr, nullptr)) {
-        throw ElfAnalyzerError("Failed to analyze DWARF information for the remote process");
-    }
-
-    if (dwfl_linux_proc_attach(d_dwfl.get(), pid, true) != 0) {
-        throw ElfAnalyzerError("Could not attach the DWARF process analyzer");
-    }
-}
-
-const dwfl_unique_ptr&
-ProcessAnalyzer::getDwfl() const
-{
-    return d_dwfl;
-}
-
 static std::vector<NoteData>
 getDataFromNoteSection(
         Elf* elf,
@@ -333,7 +92,6 @@ getDataFromNoteSection(
         Elf_Data* note_data = elf_getdata_rawchunk(elf, descr_location, descr_size, note_data_type);
         if (note_data == nullptr) {
             LOG(WARNING) << "Invalid auxiliary NOTE data found in core file";
-            // There may be some other note that has valid data, so we need to continue.
             continue;
         }
 
@@ -358,8 +116,6 @@ getNoteData(Elf* elf, Elf64_Word note_type, Elf_Type note_data_type)
         return {};
     }
 
-    // We have to look through the program header to find the note sections.
-    // Note that there can be more than one.
     for (size_t program_header_idx = 0; program_header_idx < n_program_headers; ++program_header_idx) {
         GElf_Phdr mem;
         const GElf_Phdr* program_header = gelf_getphdr(elf, program_header_idx, &mem);
@@ -388,12 +144,6 @@ getNoteData(Elf* elf, Elf64_Word note_type, Elf_Type note_data_type)
     }
     LOG(ERROR) << "Failed to locate a program header of type PT_NOTE in the core file";
     return {};
-}
-
-const dwfl_unique_ptr&
-CoreFileAnalyzer::getDwfl() const
-{
-    return d_dwfl;
 }
 
 std::string

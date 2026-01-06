@@ -13,6 +13,7 @@
 #include "logging.h"
 #include "mem.h"
 #include "native_frame.h"
+#include "platform/linux/analyzer.h"
 #include "unwinder.h"
 
 namespace pystack {
@@ -417,15 +418,18 @@ AbstractUnwinder::demangleSymbol(const std::string& symbol)
     return new_symbol;
 }
 
-Unwinder::Unwinder(std::shared_ptr<ProcessAnalyzer> analyzer)
-: d_analyzer(std::move(analyzer))
+Unwinder::Unwinder(std::shared_ptr<AbstractProcessAnalyzer> analyzer)
+: d_analyzer(std::dynamic_pointer_cast<DwflProcessAnalyzer>(std::move(analyzer)))
 {
+    if (!d_analyzer) {
+        throw UnwinderError("Expected DWFL-based analyzer on Linux");
+    }
 }
 
 Dwfl*
 Unwinder::Dwfl() const
 {
-    return d_analyzer->d_dwfl.get();
+    return d_analyzer->getDwfl().get();
 }
 
 std::vector<NativeFrame>
@@ -457,9 +461,12 @@ Unwinder::unwindThread(pid_t tid) const
     return gatherFrames(frames);
 }
 
-CoreFileUnwinder::CoreFileUnwinder(std::shared_ptr<CoreFileAnalyzer> analyzer)
-: d_analyzer(std::move(analyzer))
+CoreFileUnwinder::CoreFileUnwinder(std::shared_ptr<AbstractCoreFileAnalyzer> analyzer)
+: d_analyzer(std::dynamic_pointer_cast<DwflCoreFileAnalyzer>(std::move(analyzer)))
 {
+    if (!d_analyzer) {
+        throw UnwinderError("Expected DWFL-based core analyzer on Linux");
+    }
 }
 
 static int
@@ -552,6 +559,6 @@ CoreFileUnwinder::getCoreTids() const
 struct Dwfl*
 CoreFileUnwinder::Dwfl() const
 {
-    return d_analyzer->d_dwfl.get();
+    return d_analyzer->getDwfl().get();
 }
 }  // namespace pystack

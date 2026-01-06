@@ -9,6 +9,7 @@
 #include <vector>
 
 #ifdef __linux__
+#    include "analyzer.h"
 #    include "elf_common.h"
 #    include "mem.h"
 #endif
@@ -84,6 +85,9 @@ class ModuleCuDieRanges
     std::unordered_map<Dwfl_Module*, CuDieRanges> d_die_range_maps;
 };
 
+class DwflProcessAnalyzer;
+class DwflCoreFileAnalyzer;
+
 class AbstractUnwinder
 {
   public:
@@ -139,7 +143,7 @@ class Unwinder : public AbstractUnwinder
 {
   public:
     // Constructors
-    explicit Unwinder(std::shared_ptr<ProcessAnalyzer> analyzer);
+    explicit Unwinder(std::shared_ptr<AbstractProcessAnalyzer> analyzer);
 
     // Methods
     virtual struct Dwfl* Dwfl() const override;
@@ -147,14 +151,14 @@ class Unwinder : public AbstractUnwinder
 
   private:
     // Data members
-    std::shared_ptr<ProcessAnalyzer> d_analyzer;
+    std::shared_ptr<DwflProcessAnalyzer> d_analyzer;
 };
 
 class CoreFileUnwinder : public AbstractUnwinder
 {
   public:
     // Constructors
-    explicit CoreFileUnwinder(std::shared_ptr<CoreFileAnalyzer> analyzer);
+    explicit CoreFileUnwinder(std::shared_ptr<AbstractCoreFileAnalyzer> analyzer);
 
     // Methods
     virtual struct Dwfl* Dwfl() const override;
@@ -163,7 +167,7 @@ class CoreFileUnwinder : public AbstractUnwinder
 
   private:
     // Data members
-    std::shared_ptr<CoreFileAnalyzer> d_analyzer;
+    std::shared_ptr<DwflCoreFileAnalyzer> d_analyzer;
 };
 #endif  // __linux__
 
