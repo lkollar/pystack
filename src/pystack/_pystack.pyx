@@ -20,7 +20,7 @@ from cython.operator import postincrement
 
 from _pystack.analyzer cimport AbstractCoreFileAnalyzer as NativeCoreFileAnalyzer
 from _pystack.analyzer cimport AbstractProcessAnalyzer as NativeProcessAnalyzer
-from _pystack.corefile cimport CoreFileExtractor
+from _pystack.corefile cimport AbstractCoreFileExtractor
 from _pystack.logging cimport initializePythonLoggerInterface
 from _pystack.mem cimport AbstractRemoteMemoryManager
 from _pystack.mem cimport MemoryMapInformation as CppMemoryMapInformation
@@ -230,7 +230,7 @@ cdef shared_ptr[NativeCoreFileAnalyzer] get_core_analyzer(
 
 
 cdef class CoreFileAnalyzer:
-    cdef shared_ptr[CoreFileExtractor] _core_analyzer
+    cdef unique_ptr[AbstractCoreFileExtractor] _core_analyzer
     cdef object ignored_libs
 
     def __cinit__(self, core_file, executable=None, lib_search_path=None):
@@ -242,7 +242,7 @@ cdef class CoreFileAnalyzer:
         cdef shared_ptr[NativeCoreFileAnalyzer] analyzer = get_core_analyzer(
             core_file, executable, lib_search_path
         )
-        self._core_analyzer = make_shared[CoreFileExtractor](analyzer)
+        self._core_analyzer = AbstractCoreFileExtractor.create(analyzer)
 
     @intercept_runtime_errors(EngineError)
     def extract_maps(self) -> Iterable[VirtualMap]:
@@ -363,9 +363,9 @@ cdef class ProcessManager:
         cdef shared_ptr[NativeCoreFileAnalyzer] analyzer = get_core_analyzer(
             core_file, executable, lib_search_path
         )
-        cdef unique_ptr[CoreFileExtractor] core_extractor = make_unique[
-            CoreFileExtractor
-        ](analyzer)
+        cdef unique_ptr[AbstractCoreFileExtractor] core_extractor = AbstractCoreFileExtractor.create(
+            analyzer
+        )
 
         mapped_files = core_extractor.get().extractMappedFiles()
         memory_maps = core_extractor.get().MemoryMaps()

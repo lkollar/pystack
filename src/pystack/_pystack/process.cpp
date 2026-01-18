@@ -9,7 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "corefile.h"
 #include "logging.h"
 #include "mem.h"
 #include "native_frame.h"
@@ -1294,16 +1293,10 @@ ProcessManager::ProcessManager(
 , d_tids(tracer->getTids())
 {
     d_analyzer = analyzer;
-    d_unwinder = std::make_unique<Unwinder>(analyzer);
-    d_manager = std::make_unique<ProcessMemoryManager>(pid, d_memory_maps);
-}
-
-d_tids = tracer->getTids();
-d_manager = std::make_unique<ProcessMemoryManager>(pid, d_memory_maps);
-d_analyzer = analyzer;
 #ifdef __linux__
-d_unwinder = std::make_unique<Unwinder>(analyzer);
+    d_unwinder = std::make_unique<Unwinder>(analyzer);
 #endif
+    d_manager = std::make_unique<ProcessMemoryManager>(pid, d_memory_maps);
 }
 
 const std::vector<int>&

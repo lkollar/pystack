@@ -1,8 +1,6 @@
 #pragma once
 
-#include "analyzer.h"
-
-#include <stdexcept>
+#include <analyzer.h>
 
 namespace pystack {
 

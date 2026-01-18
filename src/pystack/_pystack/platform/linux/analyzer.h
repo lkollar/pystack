@@ -1,7 +1,7 @@
 #pragma once
 
-#include "analyzer.h"
 #include "elf_common.h"
+#include <analyzer.h>
 
 #include <functional>
 #include <optional>

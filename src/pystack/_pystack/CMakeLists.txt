@@ -11,7 +11,7 @@ IF(NOT PYTHONLIBS_FOUND OR NOT PYTHON_EXECUTABLE)
 ENDIF(NOT PYTHONLIBS_FOUND OR NOT PYTHON_EXECUTABLE)
 
 add_library(_pystack STATIC
-            corefile.cpp
+            platform/linux/core_file.cpp
             unwinder.cpp
             logging.cpp
             mem.cpp

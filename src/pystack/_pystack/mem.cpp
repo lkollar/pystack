@@ -12,9 +12,9 @@
 #include <unistd.h>
 #include <utility>
 
-#include "corefile.h"
 #include "logging.h"
 #include "mem.h"
+#include "platform/core_file.h"
 
 #ifdef __linux__
 #    include "platform/linux/analyzer.h"
@@ -355,8 +355,8 @@ CorefileRemoteMemoryManager::CorefileRemoteMemoryManager(
         throw RemoteMemCopyError();
     }
 
-    CoreFileExtractor extractor{d_analyzer};
-    d_shared_libs = extractor.ModuleInformation();
+    auto extractor = AbstractCoreFileExtractor::create(d_analyzer);
+    d_shared_libs = extractor->ModuleInformation();
 
     const char* filename = d_dwfl_analyzer->getFilename().c_str();
     int fd = open(filename, O_RDONLY);

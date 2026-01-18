@@ -4,11 +4,12 @@ from _pystack.analyzer cimport AbstractCoreFileAnalyzer
 from _pystack.mem cimport SimpleVirtualMap
 from libc.stdint cimport uintptr_t
 from libcpp.memory cimport shared_ptr
+from libcpp.memory cimport unique_ptr
 from libcpp.string cimport string as cppstring
 from libcpp.vector cimport vector
 
 
-cdef extern from "corefile.h" namespace "pystack":
+cdef extern from "platform/core_file.h" namespace "pystack":
     struct CoreCrashInfo:
         int si_signo
         int si_errno
@@ -43,8 +44,7 @@ cdef extern from "corefile.h" namespace "pystack":
         cppstring path
         cppstring buildid
 
-    cdef cppclass CoreFileExtractor:
-        CoreFileExtractor(shared_ptr[AbstractCoreFileAnalyzer] analyzer) except+
+    cdef cppclass AbstractCoreFileExtractor:
         int Pid() except+
         vector[CoreVirtualMap] MemoryMaps() except+
         vector[SimpleVirtualMap] ModuleInformation() except+
@@ -53,3 +53,8 @@ cdef extern from "corefile.h" namespace "pystack":
         CorePsInfo extractPSInfo() except+
         vector[cppstring] missingModules() except+
         vector[CoreVirtualMap] extractMappedFiles() except+
+
+        @staticmethod
+        unique_ptr[AbstractCoreFileExtractor] create(
+            shared_ptr[AbstractCoreFileAnalyzer] analyzer
+        ) except+
