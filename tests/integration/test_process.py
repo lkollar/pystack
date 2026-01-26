@@ -3,6 +3,11 @@ from pathlib import Path
 
 import pytest
 
+if sys.platform == "darwin":
+    pytest.skip(
+        "macOS process/core analysis not supported yet", allow_module_level=True
+    )
+
 from pystack._pystack import ProcessManager
 from pystack.engine import CoreFileAnalyzer
 from pystack.engine import get_process_threads

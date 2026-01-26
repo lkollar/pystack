@@ -1,4 +1,5 @@
 from libc.stdint cimport uintptr_t
+from libcpp.memory cimport unique_ptr
 from libcpp.string cimport string as cppstring
 from libcpp.vector cimport vector
 
@@ -7,10 +8,6 @@ cdef extern from "mem.h" namespace "pystack":
     ctypedef uintptr_t remote_addr_t
 
     cdef cppclass AbstractRemoteMemoryManager:
-        ssize_t copyMemoryFromProcess(remote_addr_t addr, size_t size, void *destination) except+
-
-    cdef cppclass ProcessMemoryManager(AbstractRemoteMemoryManager):
-        ProcessMemoryManager(int pid) except+
         ssize_t copyMemoryFromProcess(remote_addr_t addr, size_t size, void *destination) except+
 
 
@@ -41,3 +38,7 @@ cdef extern from "mem.h" namespace "pystack":
         void setMainMap(const VirtualMap& bss)
         void setBss(const VirtualMap& bss)
         void setHeap(const VirtualMap& heap)
+
+
+cdef extern from "platform/memory.h" namespace "pystack":
+    unique_ptr[AbstractRemoteMemoryManager] createProcessMemoryManager(int pid) except+

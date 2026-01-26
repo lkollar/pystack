@@ -6,6 +6,9 @@ from pathlib import Path
 import pytest
 from pytest import LogCaptureFixture
 
+if sys.platform == "darwin":
+    pytest.skip("macOS core analysis not supported yet", allow_module_level=True)
+
 from pystack.engine import CoreFileAnalyzer
 from pystack.engine import StackMethod
 from pystack.engine import get_process_threads_for_core

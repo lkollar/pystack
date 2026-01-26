@@ -3,6 +3,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include <mach/mach.h>
+
 #include "platform/abstract_tracer.h"
 
 namespace pystack {
@@ -24,6 +26,7 @@ class DarwinProcessTracer : public AbstractProcessTracer
 
   private:
     // Data members
+    mach_port_t d_task;
     std::unordered_set<int> d_tids;
 };
 

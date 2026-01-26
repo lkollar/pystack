@@ -85,6 +85,8 @@ if IS_LINUX:
         "src/pystack/_pystack/platform/linux/binary_analyzer.cpp",
         "src/pystack/_pystack/platform/linux/analyzer.cpp",
         "src/pystack/_pystack/platform/linux/core_file.cpp",
+        "src/pystack/_pystack/platform/linux/memory.cpp",
+        "src/pystack/_pystack/platform/process_info_parser.cpp",
     ]
     ELF_SOURCES = [
         "src/pystack/_pystack/elf_common.cpp",
@@ -97,6 +99,8 @@ elif IS_DARWIN:
         "src/pystack/_pystack/platform/darwin/binary_analyzer.cpp",
         "src/pystack/_pystack/platform/darwin/analyzer.cpp",
         "src/pystack/_pystack/platform/darwin/core_file.cpp",
+        "src/pystack/_pystack/platform/darwin/memory.cpp",
+        "src/pystack/_pystack/platform/process_info_parser.cpp",
     ]
     ELF_SOURCES = []
 

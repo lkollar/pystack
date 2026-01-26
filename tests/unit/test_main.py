@@ -1,4 +1,5 @@
 import logging
+import signal
 from pathlib import Path
 from textwrap import dedent
 from unittest.mock import Mock
@@ -1150,7 +1151,9 @@ def test_format_failureinfo_information_with_signal():
 
     # THEN
 
-    assert result == "The process died due receiving signal SIGBUS sent by pid 1"
+    assert result == (
+        f"The process died due receiving signal {signal.Signals(7).name} sent by pid 1"
+    )
 
 
 def test_format_failureinfo_information_with_signal_no_sender_pid():
@@ -1169,7 +1172,7 @@ def test_format_failureinfo_information_with_signal_no_sender_pid():
 
     # THEN
 
-    assert result == "The process died due receiving signal SIGBUS"
+    assert result == f"The process died due receiving signal {signal.Signals(7).name}"
 
 
 def test_format_failureinfo_information_with_no_info():

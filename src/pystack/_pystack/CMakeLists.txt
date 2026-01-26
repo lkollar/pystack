@@ -22,6 +22,8 @@ add_library(_pystack STATIC
             version.cpp
             elf_common.cpp
             platform/linux/analyzer.cpp
+            platform/linux/memory.cpp
+            platform/process_info_parser.cpp
             pytypes.cpp)
 set_property(TARGET _pystack PROPERTY POSITION_INDEPENDENT_CODE ON)
 include_directories("." "cpython" ${PYTHON_INCLUDE_DIRS})

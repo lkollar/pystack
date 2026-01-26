@@ -1,7 +1,13 @@
 import re
+import sys
 from pathlib import Path
 
 import pytest
+
+if sys.platform == "darwin":
+    pytest.skip(
+        "macOS locals/core inspection not supported yet", allow_module_level=True
+    )
 
 from pystack.engine import get_process_threads
 from pystack.engine import get_process_threads_for_core

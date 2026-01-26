@@ -24,8 +24,8 @@ from _pystack.corefile cimport AbstractCoreFileExtractor
 from _pystack.logging cimport initializePythonLoggerInterface
 from _pystack.mem cimport AbstractRemoteMemoryManager
 from _pystack.mem cimport MemoryMapInformation as CppMemoryMapInformation
-from _pystack.mem cimport ProcessMemoryManager
 from _pystack.mem cimport VirtualMap as CppVirtualMap
+from _pystack.mem cimport createProcessMemoryManager
 from _pystack.platform.binary_analyzer cimport AbstractBinaryAnalyzer
 from _pystack.platform.binary_analyzer cimport SectionInfo
 from _pystack.platform.process_info cimport AbstractProcessInfo
@@ -117,12 +117,8 @@ class intercept_runtime_errors:
 
 @intercept_runtime_errors(EngineError)
 def copy_memory_from_address(pid, address, size):
-    cdef shared_ptr[AbstractRemoteMemoryManager] manager
     cdef int the_pid = pid
-    cdef vector[int] tids
-    manager = <shared_ptr[AbstractRemoteMemoryManager]> (
-        make_shared[ProcessMemoryManager](the_pid)
-    )
+    cdef unique_ptr[AbstractRemoteMemoryManager] manager = createProcessMemoryManager(the_pid)
 
     cdef AbstractRemoteMemoryManager *manager_handle = manager.get()
 

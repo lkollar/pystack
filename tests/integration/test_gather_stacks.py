@@ -7,6 +7,9 @@ from unittest.mock import patch
 
 import pytest
 
+if sys.platform == "darwin":
+    pytest.skip("macOS live process tracing not supported yet", allow_module_level=True)
+
 from pystack.engine import NativeReportingMode
 from pystack.engine import StackMethod
 from pystack.engine import get_process_threads

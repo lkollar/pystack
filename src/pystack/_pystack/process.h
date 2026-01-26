@@ -162,7 +162,9 @@ class CoreFileProcessManager : public AbstractProcessManager
 
   private:
     // Data members
+#ifdef __linux__
     std::vector<int> d_tids;
     std::optional<std::string> d_executable;
+#endif
 };
 }  // namespace pystack

@@ -12,6 +12,7 @@
 #include "logging.h"
 #include "mem.h"
 #include "native_frame.h"
+#include "platform/memory.h"
 #include "process.h"
 #include "pycode.h"
 #include "pycompat.h"
@@ -1296,7 +1297,7 @@ ProcessManager::ProcessManager(
 #ifdef __linux__
     d_unwinder = std::make_unique<Unwinder>(analyzer);
 #endif
-    d_manager = std::make_unique<ProcessMemoryManager>(pid, d_memory_maps);
+    d_manager = createProcessMemoryManager(pid, d_memory_maps);
 }
 
 const std::vector<int>&
@@ -1335,6 +1336,23 @@ const std::vector<int>&
 CoreFileProcessManager::Tids() const
 {
     return d_tids;
+}
+#else
+CoreFileProcessManager::CoreFileProcessManager(
+        pid_t /* pid */,
+        const std::shared_ptr<AbstractCoreFileAnalyzer>& /* analyzer */,
+        std::vector<VirtualMap> /* memory_maps */,
+        MemoryMapInformation /* map_info */)
+: AbstractProcessManager(0, {}, {})
+{
+    throw std::runtime_error("Core files are not supported on this platform");
+}
+
+const std::vector<int>&
+CoreFileProcessManager::Tids() const
+{
+    static const std::vector<int> empty;
+    return empty;
 }
 #endif  // __linux__
 

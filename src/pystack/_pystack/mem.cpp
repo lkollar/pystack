@@ -4,13 +4,10 @@
 #include <fstream>
 #include <ios>
 #include <memory>
-#include <sys/uio.h>
-#ifdef __linux__
-#    include <syscall.h>
-#endif
 #include <system_error>
 #include <unistd.h>
 #include <utility>
+#include <vector>
 
 #include "logging.h"
 #include "mem.h"
@@ -24,21 +21,8 @@ namespace pystack {
 
 #ifdef __linux__
 using elf_unique_ptr = std::unique_ptr<Elf, std::function<void(Elf*)>>;
-
-static ssize_t
-_process_vm_readv(
-        pid_t pid,
-        const struct iovec* lvec,
-        unsigned long liovcnt,
-        const struct iovec* rvec,
-        unsigned long riovcnt,
-        unsigned long flags)
-{
-    return syscall(SYS_process_vm_readv, pid, lvec, liovcnt, rvec, riovcnt, flags);
-}
 #endif  // __linux__
 
-static const std::string PERM_MESSAGE = "Operation not permitted";
 static const size_t CACHE_CAPACITY = 5e+7;  // 50MB
 
 VirtualMap::VirtualMap(
@@ -220,95 +204,19 @@ LRUCache::can_fit(size_t size)
     return d_cache_capacity >= size;
 }
 
-ProcessMemoryManager::ProcessMemoryManager(pid_t pid, const std::vector<VirtualMap>& vmaps)
-: d_pid(pid)
-, d_vmaps(vmaps)
+UnixRemoteMemoryManager::UnixRemoteMemoryManager()
+: d_lru_cache(CACHE_CAPACITY)
+{
+}
+
+UnixRemoteMemoryManager::UnixRemoteMemoryManager(const std::vector<VirtualMap>& vmaps)
+: d_vmaps(vmaps)
 , d_lru_cache(CACHE_CAPACITY)
 {
 }
 
-ProcessMemoryManager::ProcessMemoryManager(pid_t pid)
-: d_pid(pid)
-, d_lru_cache(CACHE_CAPACITY)
-{
-}
-
 ssize_t
-ProcessMemoryManager::readChunk(remote_addr_t addr, size_t len, char* dst) const
-{
-#ifdef __linux__
-    if (d_memfile || getenv("_PYSTACK_NO_PROCESS_VM_READV") != nullptr) {
-        return readChunkThroughMemFile(addr, len, dst);
-    } else {
-        return readChunkDirect(addr, len, dst);
-    }
-#else
-    // On non-Linux, always use the memfile approach (will fail until Darwin implementation)
-    return readChunkThroughMemFile(addr, len, dst);
-#endif
-}
-
-#ifdef __linux__
-ssize_t
-ProcessMemoryManager::readChunkDirect(remote_addr_t addr, size_t len, char* dst) const
-{
-    struct iovec local[1];
-    struct iovec remote[1];
-    ssize_t result = 0;
-    ssize_t read = 0;
-
-    do {
-        local[0].iov_base = dst + result;
-        local[0].iov_len = len - result;
-        remote[0].iov_base = reinterpret_cast<uint8_t*>(addr) + result;
-        remote[0].iov_len = len - result;
-
-        read = _process_vm_readv(d_pid, local, 1, remote, 1, 0);
-        if (read < 0) {
-            if (errno == EFAULT) {
-                throw InvalidRemoteAddress();
-            } else if (errno == EPERM) {
-                throw std::runtime_error(PERM_MESSAGE);
-            } else if (errno == ENOSYS) {
-                LOG(DEBUG) << "process_vm_readv not compiled in kernel, falling back to /proc/PID/mem";
-                return readChunkThroughMemFile(addr, len, dst);
-            }
-            throw std::system_error(errno, std::generic_category());
-        }
-
-        result += read;
-    } while ((size_t)read != local[0].iov_len);
-
-    return result;
-}
-#endif  // __linux__
-
-ssize_t
-ProcessMemoryManager::readChunkThroughMemFile(remote_addr_t addr, size_t len, char* dst) const
-{
-    if (!d_memfile) {
-        std::string filepath = "/proc/" + std::to_string(d_pid) + "/mem";
-        d_memfile = file_unique_ptr(fopen(filepath.c_str(), "r"), fclose);
-        if (!d_memfile) {
-            if (errno == EPERM || errno == EACCES) {
-                LOG(ERROR) << "Permission denied opening file " << filepath;
-                throw std::runtime_error(PERM_MESSAGE);
-            }
-            LOG(ERROR) << "Failed to open file " << filepath << ": " << std::strerror(errno);
-            throw std::runtime_error("Failed to open " + filepath);
-        }
-    }
-    fseeko(d_memfile.get(), addr, SEEK_SET);
-    if (static_cast<off_t>(addr) != ftello(d_memfile.get())
-        || len != fread(dst, 1, len, d_memfile.get()))
-    {
-        throw InvalidRemoteAddress();
-    }
-    return static_cast<ssize_t>(len);
-}
-
-ssize_t
-ProcessMemoryManager::copyMemoryFromProcess(remote_addr_t addr, size_t len, void* dst) const
+UnixRemoteMemoryManager::copyMemoryFromProcess(remote_addr_t addr, size_t len, void* dst) const
 {
     auto vmap = std::find_if(d_vmaps.begin(), d_vmaps.end(), [&](const auto& vmap) {
         return vmap.containsAddr(addr) && vmap.containsAddr(addr + len - 1);
@@ -335,7 +243,7 @@ ProcessMemoryManager::copyMemoryFromProcess(remote_addr_t addr, size_t len, void
 }
 
 bool
-ProcessMemoryManager::isAddressValid(remote_addr_t addr, const VirtualMap& map) const
+UnixRemoteMemoryManager::isAddressValid(remote_addr_t addr, const VirtualMap& map) const
 {
     if (addr == (uintptr_t) nullptr) {
         return false;

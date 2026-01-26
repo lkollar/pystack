@@ -1,5 +1,13 @@
 import re
+import sys
 from pathlib import Path
+
+import pytest
+
+if sys.platform == "darwin":
+    pytest.skip(
+        "macOS live/core GC inspection not supported yet", allow_module_level=True
+    )
 
 from pystack.engine import NativeReportingMode
 from pystack.engine import get_process_threads
