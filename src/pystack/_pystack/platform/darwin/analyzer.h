@@ -2,6 +2,8 @@
 
 #include <analyzer.h>
 
+#include <vector>
+
 namespace pystack {
 
 class MachProcessAnalyzer : public AbstractProcessAnalyzer
@@ -15,6 +17,9 @@ class MachProcessAnalyzer : public AbstractProcessAnalyzer
     std::vector<ModuleInfo> getModules() const override;
     std::optional<ModuleInfo> findModule(const std::string& name) const override;
     uintptr_t getModuleLoadPoint(const ModuleInfo& module) const override;
+
+  private:
+    std::vector<ModuleInfo> d_modules;
 };
 
 class MachCoreFileAnalyzer : public AbstractCoreFileAnalyzer
