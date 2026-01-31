@@ -93,6 +93,8 @@ findPthreadTidOffset(
         auto pthread_id_addr = current_thread.getField(&py_thread_v::o_thread_id);
 
         // Attempt to locate a field in the pthread struct that's equal to the pid.
+        // FIXME: This pid-based heuristic does not work on macOS where thread IDs
+        // are Mach thread ports and the pthread struct layout differs.
         uintptr_t buffer[100];
         size_t buffer_size = sizeof(buffer);
         while (buffer_size > 0) {
@@ -197,6 +199,13 @@ PyThread::inferTidFromPThreadStructure(
     //   ...
     //   }
     //
+    if (tid_offset_in_pthread_struct == 0) {
+#ifdef __APPLE__
+        return static_cast<int>(pthread_id);
+#else
+        throw std::runtime_error("Invalid thread ID found!");
+#endif
+    }
     int the_tid;
     manager->copyObjectFromProcess((remote_addr_t)(pthread_id + tid_offset_in_pthread_struct), &the_tid);
 
@@ -205,7 +214,10 @@ PyThread::inferTidFromPThreadStructure(
     // but not joined.
     const auto& tids = manager->Tids();
     if (the_tid != 0 && std::find(tids.begin(), tids.end(), the_tid) == tids.end()) {
+#ifdef __APPLE__
+#else
         throw std::runtime_error("Invalid thread ID found!");
+#endif
     }
     return the_tid;
 }
@@ -363,7 +375,9 @@ getThreadFromInterpreterState(
         remote_addr_t addr)
 {
     if (tid_offset_in_pthread_struct == 0) {
-        tid_offset_in_pthread_struct = findPthreadTidOffset(manager, addr);
+        if (!manager->versionIsAtLeast(3, 11)) {
+            tid_offset_in_pthread_struct = findPthreadTidOffset(manager, addr);
+        }
     }
 
     LOG(DEBUG) << std::hex << std::showbase << "Copying PyInterpreterState struct from address " << addr;

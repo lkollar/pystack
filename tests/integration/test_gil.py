@@ -4,16 +4,15 @@ from pathlib import Path
 
 import pytest
 
-if sys.platform == "darwin":
-    pytest.skip(
-        "macOS live/core GIL inspection not supported yet", allow_module_level=True
-    )
-
 from pystack.engine import get_process_threads
 from pystack.engine import get_process_threads_for_core
 from tests.utils import ALL_PYTHONS
 from tests.utils import generate_core_file
 from tests.utils import spawn_child_process
+
+pytestmark = pytest.mark.usefixtures("requires_task_for_pid")
+
+IS_DARWIN = sys.platform == "darwin"
 
 TEST_MULTIPLE_THREADS_GIL_FILE = (
     Path(__file__).parent / "multiple_thread_program_gil.py"
@@ -40,7 +39,7 @@ def test_gil_status_one_thread_among_many_holds_the_gil(python, tmpdir):
     # WHEN
 
     with spawn_child_process(
-        python_executable, TEST_MULTIPLE_THREADS_GIL_FILE, tmpdir
+        python_executable, str(TEST_MULTIPLE_THREADS_GIL_FILE), tmpdir
     ) as child_process:
         threads = list(get_process_threads(child_process.pid, stop_process=True))
 
@@ -58,7 +57,7 @@ def test_gil_status_no_thread_among_many_holds_the_gil(python, tmpdir):
     # WHEN
 
     with spawn_child_process(
-        python_executable, TEST_MULTIPLE_THREADS_FILE, tmpdir
+        python_executable, str(TEST_MULTIPLE_THREADS_FILE), tmpdir
     ) as child_process:
         threads = list(get_process_threads(child_process.pid, stop_process=True))
 
@@ -77,7 +76,7 @@ def test_gil_status_single_thread_holds_the_gil(python, tmpdir):
     # WHEN
 
     with spawn_child_process(
-        python_executable, TEST_SINGLE_THREAD_GIL_FILE, tmpdir
+        python_executable, str(TEST_SINGLE_THREAD_GIL_FILE), tmpdir
     ) as child_process:
         threads = list(get_process_threads(child_process.pid, stop_process=True))
 
@@ -96,7 +95,7 @@ def test_gil_status_single_thread_does_not_hold_the_gil(python, tmpdir):
     # WHEN
 
     with spawn_child_process(
-        python_executable, TEST_SINGLE_THREAD_FILE, tmpdir
+        python_executable, str(TEST_SINGLE_THREAD_FILE), tmpdir
     ) as child_process:
         threads = list(get_process_threads(child_process.pid, stop_process=True))
 
@@ -107,6 +106,7 @@ def test_gil_status_single_thread_does_not_hold_the_gil(python, tmpdir):
     assert not thread.holds_the_gil
 
 
+@pytest.mark.skipif(IS_DARWIN, reason="macOS core files not supported")
 @ALL_PYTHONS
 def test_gil_status_one_thread_among_many_holds_the_gil_for_core(python, tmpdir):
     """Generate a core file for a process with multiple threads in which we know
@@ -129,6 +129,7 @@ def test_gil_status_one_thread_among_many_holds_the_gil_for_core(python, tmpdir)
     assert sorted(thread.holds_the_gil for thread in threads) == [0, 0, 0, 1]
 
 
+@pytest.mark.skipif(IS_DARWIN, reason="macOS core files not supported")
 @ALL_PYTHONS
 def test_gil_status_no_thread_among_many_holds_the_gil_for_core(python, tmpdir):
     """Generate a core file for a process with multiple threads in which we know
@@ -152,6 +153,7 @@ def test_gil_status_no_thread_among_many_holds_the_gil_for_core(python, tmpdir):
     assert len(nogil_threads) == 4
 
 
+@pytest.mark.skipif(IS_DARWIN, reason="macOS core files not supported")
 @ALL_PYTHONS
 def test_gil_status_single_thread_holds_the_gil_for_core(python, tmpdir):
     """Generate a core file for a process with a single thread in which we know
@@ -175,6 +177,7 @@ def test_gil_status_single_thread_holds_the_gil_for_core(python, tmpdir):
     assert thread.holds_the_gil
 
 
+@pytest.mark.skipif(IS_DARWIN, reason="macOS core files not supported")
 @ALL_PYTHONS
 def test_gil_status_single_thread_does_not_hold_the_gil_for_core(python, tmpdir):
     """Generate a core file for a process with a single thread in which we know

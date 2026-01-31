@@ -229,7 +229,12 @@ AbstractProcessManager::findInterpreterStateFromPyRuntime(remote_addr_t runtime_
               << std::showbase << runtime_addr;
 
     Structure<py_runtime_v> py_runtime(shared_from_this(), runtime_addr);
-    remote_addr_t interp_state = py_runtime.getField(&py_runtime_v::o_interp_head);
+    remote_addr_t interp_state;
+    try {
+        interp_state = py_runtime.getField(&py_runtime_v::o_interp_head);
+    } catch (RemoteMemCopyError& ex) {
+        return (remote_addr_t)NULL;
+    }
 
     if (!isValidInterpreterState(interp_state)) {
         LOG(INFO) << "Failing to resolve PyInterpreterState based on PyRuntime address " << std::hex
@@ -355,17 +360,36 @@ AbstractProcessManager::findDebugOffsetsFromMaps() const
 {
     LOG(INFO) << "Scanning all writable path-backed maps for _Py_DebugOffsets";
     for (auto& map : d_memory_maps) {
-        if (map.Flags().find("w") != std::string::npos && !map.Path().empty()) {
-            LOG(DEBUG) << std::hex << std::showbase << "Attempting to locate _Py_DebugOffsets in map of "
-                       << map.Path() << " starting at " << map.Start() << " and ending at " << map.End();
-            LOG(DEBUG) << "Flags: " << map.Flags();
-            try {
-                if (remote_addr_t result = scanMemoryAreaForDebugOffsets(map)) {
-                    return result;
-                }
-            } catch (RemoteMemCopyError& ex) {
-                LOG(INFO) << "Failed to scan map starting at " << map.Start();
+#ifdef __APPLE__
+        bool is_python_map =
+                !map.Path().empty() && map.Path().find("Python.framework/") != std::string::npos;
+        bool is_bss_map = d_bss.has_value() && map.Start() == d_bss->Start();
+        if (map.Flags().find("r") == std::string::npos) {
+            continue;
+        }
+        if (map.Flags().find("x") != std::string::npos) {
+            continue;
+        }
+        if (!is_python_map && !is_bss_map) {
+            continue;
+        }
+#else
+        if (map.Flags().find("w") == std::string::npos) {
+            continue;
+        }
+        if (map.Path().empty()) {
+            continue;
+        }
+#endif
+        LOG(DEBUG) << std::hex << std::showbase << "Attempting to locate _Py_DebugOffsets in map of "
+                   << map.Path() << " starting at " << map.Start() << " and ending at " << map.End();
+        LOG(DEBUG) << "Flags: " << map.Flags();
+        try {
+            if (remote_addr_t result = scanMemoryAreaForDebugOffsets(map)) {
+                return result;
             }
+        } catch (RemoteMemCopyError& ex) {
+            LOG(INFO) << "Failed to scan map starting at " << map.Start();
         }
     }
     return 0;
@@ -380,9 +404,22 @@ AbstractProcessManager::copyMemoryFromProcess(remote_addr_t addr, size_t size, v
 bool
 AbstractProcessManager::isAddressValid(remote_addr_t addr) const
 {
-    return std::any_of(d_memory_maps.cbegin(), d_memory_maps.cend(), [&](const VirtualMap& map) {
-        return d_manager->isAddressValid(addr, map);
-    });
+    if (std::any_of(d_memory_maps.cbegin(), d_memory_maps.cend(), [&](const VirtualMap& map) {
+            return d_manager->isAddressValid(addr, map);
+        }))
+    {
+        return true;
+    }
+#ifdef __APPLE__
+    char probe = 0;
+    try {
+        copyMemoryFromProcess(addr, sizeof(probe), &probe);
+        return true;
+    } catch (const RemoteMemCopyError&) {
+        return false;
+    }
+#endif
+    return false;
 }
 
 std::string
@@ -476,6 +513,20 @@ AbstractProcessManager::findSymbol(const std::string& symbol) const
         return elem->second;
     }
 
+    remote_addr_t resolved = findSymbolImpl(symbol);
+    d_symbol_cache.emplace(symbol, resolved);
+    return resolved;
+}
+
+remote_addr_t
+AbstractProcessManager::findSymbolImpl(const std::string& symbol) const
+{
+    return findSymbolInMainModule(symbol);
+}
+
+remote_addr_t
+AbstractProcessManager::findSymbolInMainModule(const std::string& symbol) const
+{
     if (!d_main_map) {
         return 0;
     }
@@ -496,15 +547,59 @@ AbstractProcessManager::findSymbol(const std::string& symbol) const
     }
 
     if (!module_info) {
-        d_symbol_cache.emplace(symbol, 0);
         return 0;
     }
 
     const auto address = d_analyzer->getSymbolAddress(symbol, module_info.value());
-    remote_addr_t resolved = address.has_value() ? address.value() : 0;
-    d_symbol_cache.emplace(symbol, resolved);
-    return resolved;
+    return address.has_value() ? address.value() : 0;
 }
+
+#ifdef __APPLE__
+remote_addr_t
+ProcessManager::findSymbolImpl(const std::string& symbol) const
+{
+    auto is_runtime_symbol = [&symbol]() {
+        return symbol == "_PyRuntime" || symbol == "Py_Version" || symbol == "interp_head";
+    };
+
+    if (!d_main_map) {
+        return 0;
+    }
+
+    auto is_readable = [&](remote_addr_t addr) {
+        char probe = 0;
+        try {
+            copyMemoryFromProcess(addr, sizeof(probe), &probe);
+            return true;
+        } catch (const RemoteMemCopyError&) {
+            return false;
+        }
+    };
+
+    remote_addr_t address = findSymbolInMainModule(symbol);
+    if (address && is_runtime_symbol() && is_readable(address)) {
+        return address;
+    }
+
+    for (const auto& module : d_analyzer->getModules()) {
+        if (is_runtime_symbol() && !module.path.empty()) {
+            if (module.path.find("/Python.framework/Versions/") == std::string::npos
+                || std::filesystem::path(module.path).filename().string() != "Python")
+            {
+                continue;
+            }
+        }
+        const auto candidate = d_analyzer->getSymbolAddress(symbol, module);
+        if (candidate.has_value() && candidate.value() != 0) {
+            if (!is_runtime_symbol() || is_readable(candidate.value())) {
+                return candidate.value();
+            }
+        }
+    }
+
+    return 0;
+}
+#endif
 
 remote_addr_t
 AbstractProcessManager::findInterpreterStateFromSymbols() const
@@ -566,9 +661,13 @@ AbstractProcessManager::isInterpreterActive() const
 {
     remote_addr_t runtime_addr = findSymbol("_PyRuntime");
     if (runtime_addr) {
-        Structure<py_runtime_v> py_runtime(shared_from_this(), runtime_addr);
-        remote_addr_t p = py_runtime.getField(&py_runtime_v::o_finalizing);
-        return p == 0 ? InterpreterStatus::RUNNING : InterpreterStatus::FINALIZED;
+        try {
+            Structure<py_runtime_v> py_runtime(shared_from_this(), runtime_addr);
+            remote_addr_t p = py_runtime.getField(&py_runtime_v::o_finalizing);
+            return p == 0 ? InterpreterStatus::RUNNING : InterpreterStatus::FINALIZED;
+        } catch (const RemoteMemCopyError&) {
+            LOG(DEBUG) << "Failed to read _PyRuntime for interpreter status";
+        }
     }
 
     return InterpreterStatus::UNKNOWN;
@@ -578,8 +677,20 @@ void
 AbstractProcessManager::setPythonVersionFromDebugOffsets()
 {
     remote_addr_t pyruntime_addr = findSymbol("_PyRuntime");
+    if (pyruntime_addr && !isAddressValid(pyruntime_addr)) {
+        LOG(DEBUG) << std::hex << std::showbase
+                   << "_PyRuntime symbol address not in maps: " << pyruntime_addr;
+        // On macOS the symbol may resolve outside known maps due to slides.
+        pyruntime_addr = 0;
+    }
     if (!pyruntime_addr) {
         pyruntime_addr = findPyRuntimeFromElfData();
+    }
+    if (pyruntime_addr && !isAddressValid(pyruntime_addr)) {
+        LOG(DEBUG) << std::hex << std::showbase
+                   << "_PyRuntime section address not in maps: " << pyruntime_addr;
+        // macOS binaries can expose section addresses that don't map 1:1.
+        pyruntime_addr = 0;
     }
     if (!pyruntime_addr) {
         pyruntime_addr = findDebugOffsetsFromMaps();
@@ -618,6 +729,9 @@ AbstractProcessManager::setPythonVersionFromDebugOffsets()
                 return;
             }
         }
+    } catch (const RemoteMemPermissionError&) {
+        LOG(DEBUG) << "Failed to read _Py_DebugOffsets due to permission error";
+        return;
     } catch (const RemoteMemCopyError& ex) {
         LOG(DEBUG) << std::hex << std::showbase << "Found apparently invalid _Py_DebugOffsets at "
                    << pyruntime_addr;
@@ -1208,7 +1322,28 @@ AbstractProcessManager::findPyRuntimeFromElfData() const
     }
 
     auto binary = AbstractBinaryAnalyzer::create(d_main_map.value().Path());
-    auto section = binary->findSection(".PyRuntime");
+    std::optional<SectionInfo> section = std::nullopt;
+#ifdef __APPLE__
+    const std::vector<std::string> section_candidates = {
+            ".PyRuntime",
+            "__PyRuntime",
+            "__DATA,__PyRuntime",
+            "__DATA_CONST,__PyRuntime",
+            "__DATA,PyRuntime",
+            "__DATA_CONST,PyRuntime",
+    };
+    for (const auto& candidate : section_candidates) {
+        section = binary->findSection(candidate);
+        if (section) {
+            break;
+        }
+    }
+    if (!section) {
+        LOG(DEBUG) << "Mach-O PyRuntime section not found in " << d_main_map.value().Path();
+    }
+#else
+    section = binary->findSection(".PyRuntime");
+#endif
     if (!section) {
         LOG(INFO) << "Failed to resolve PyInterpreterState from Elf data because .PyRuntime section "
                      "could not be found";
@@ -1339,6 +1474,7 @@ CoreFileProcessManager::Tids() const
     return d_tids;
 }
 #else
+// TODO: temporary placeholder to make it compile, will have to move to proper abstraction
 CoreFileProcessManager::CoreFileProcessManager(
         pid_t /* pid */,
         const std::shared_ptr<AbstractCoreFileAnalyzer>& /* analyzer */,

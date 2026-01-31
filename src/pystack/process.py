@@ -40,7 +40,11 @@ def scan_process_bss_for_python_version(
         from pystack._pystack import copy_memory_from_address
     except ImportError:  # pragma: no cover
         return None
-    memory = copy_memory_from_address(pid, bss.start, bss.size)
+    try:
+        memory = copy_memory_from_address(pid, bss.start, bss.size)
+    except Exception as exc:  # pragma: no cover - platform-specific
+        LOGGER.info("Failed to scan bss for version: %s", exc)
+        return None
     match = BSS_VERSION_REGEXP.findall(memory)
     if not match:
         return None
@@ -78,6 +82,17 @@ def _get_python_version_from_map_information(
         )
         match = BINARY_REGEXP.match(mapinfo.python.path.name)
     if match is None:
+        framework_match = re.search(
+            r"Versions/(?P<major>\d+)\.(?P<minor>\d+)",
+            str(mapinfo.python.path),
+        )
+        if framework_match is not None:
+            major = framework_match.group("major")
+            minor = framework_match.group("minor")
+            LOGGER.info(
+                "Python version determined from framework path: %s.%s", major, minor
+            )
+            return int(major), int(minor)
         LOGGER.info(
             "Could not find version by looking at library or binary path: "
             "Trying to get it from running python --version"

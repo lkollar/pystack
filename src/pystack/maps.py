@@ -197,11 +197,15 @@ def _get_bss(elf_maps: List[VirtualMap], load_point: int) -> Optional[VirtualMap
         return None
 
     offset = first_matching_map.offset + (start - first_matching_map.start)
+    max_size = first_matching_map.end - start
+    if max_size <= 0:
+        return None
+    size = min(bss_info["size"], max_size)
 
     bss = VirtualMap(
         start=start,
-        end=start + bss_info["size"],
-        filesize=bss_info["size"],
+        end=start + size,
+        filesize=size,
         offset=offset,
         device="",
         flags="",

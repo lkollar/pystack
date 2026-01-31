@@ -60,7 +60,14 @@ class AbstractProcessManager : public std::enable_shared_from_this<AbstractProce
     remote_addr_t findInterpreterStateFromElfData() const;
     remote_addr_t findInterpreterStateFromDebugOffsets() const;
     remote_addr_t findSymbol(const std::string& symbol) const;
+
+  protected:
+    virtual remote_addr_t findSymbolImpl(const std::string& symbol) const;
+    remote_addr_t findSymbolInMainModule(const std::string& symbol) const;
+
+  public:
     ssize_t copyMemoryFromProcess(remote_addr_t addr, size_t size, void* destination) const;
+
     template<typename T>
     ssize_t copyObjectFromProcess(remote_addr_t addr, T* destination) const;
     std::string getBytesFromAddress(remote_addr_t addr) const;
@@ -137,6 +144,10 @@ class ProcessManager : public AbstractProcessManager
 
     // Getters
     const std::vector<int>& Tids() const override;
+
+#ifdef __APPLE__
+    remote_addr_t findSymbolImpl(const std::string& symbol) const override;
+#endif
 
   private:
     // Data members

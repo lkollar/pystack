@@ -233,8 +233,15 @@ UnixRemoteMemoryManager::copyMemoryFromProcess(remote_addr_t addr, size_t len, v
 
     if (!d_lru_cache.exists(key)) {
         std::vector<char> buf(chunk_size);
-        readChunk(vmap_start_addr, chunk_size, buf.data());
-        d_lru_cache.put(key, std::move(buf));
+        try {
+            readChunk(vmap_start_addr, chunk_size, buf.data());
+            d_lru_cache.put(key, std::move(buf));
+        } catch (const RemoteMemCopyError&) {
+            // On macos mach_vm_read_overwrite fails if any page in the region
+            // is unreadable so we need to fall back
+            // TODO: move this into platform-specific code?
+            return readChunk(addr, len, reinterpret_cast<char*>(dst));
+        }
     }
 
     std::memcpy(dst, d_lru_cache.get(key).data() + offset_addr, len);
