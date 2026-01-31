@@ -9,6 +9,7 @@
 #include <mach/mach_vm.h>
 
 #include "logging.h"
+#include "mem.h"
 
 namespace pystack {
 
@@ -55,7 +56,7 @@ DarwinProcessMemoryManager::readChunk(remote_addr_t addr, size_t len, char* dst)
         throw InvalidRemoteAddress();
     }
     if (kr == KERN_PROTECTION_FAILURE || kr == KERN_NO_ACCESS || kr == KERN_INVALID_TASK) {
-        throw std::runtime_error(PERM_MESSAGE);
+        throw RemoteMemPermissionError();
     }
     throw std::runtime_error("Failed to read memory: " + std::string(mach_error_string(kr)));
 }

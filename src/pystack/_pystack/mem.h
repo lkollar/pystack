@@ -47,6 +47,14 @@ struct InvalidRemoteAddress : public RemoteMemCopyError
     }
 };
 
+struct RemoteMemPermissionError : public RemoteMemCopyError
+{
+    const char* what() const noexcept override
+    {
+        return "Operation not permitted";
+    }
+};
+
 struct InvalidCopiedMemory : public RemoteMemCopyError
 {
     const char* what() const noexcept override

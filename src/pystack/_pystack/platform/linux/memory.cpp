@@ -11,6 +11,7 @@
 #include <sys/uio.h>
 
 #include "logging.h"
+#include "mem.h"
 
 namespace pystack {
 
@@ -77,7 +78,7 @@ LinuxProcessMemoryManager::readChunkDirect(remote_addr_t addr, size_t len, char*
             if (errno == EFAULT) {
                 throw InvalidRemoteAddress();
             } else if (errno == EPERM) {
-                throw std::runtime_error(PERM_MESSAGE);
+                throw RemoteMemPermissionError();
             } else if (errno == ENOSYS) {
                 LOG(DEBUG) << "process_vm_readv not compiled in kernel, falling back to /proc/PID/mem";
                 return readChunkThroughMemFile(addr, len, dst);
@@ -100,7 +101,7 @@ LinuxProcessMemoryManager::readChunkThroughMemFile(remote_addr_t addr, size_t le
         if (!d_memfile) {
             if (errno == EPERM || errno == EACCES) {
                 LOG(ERROR) << "Permission denied opening file " << filepath;
-                throw std::runtime_error(PERM_MESSAGE);
+                throw RemoteMemPermissionError();
             }
             LOG(ERROR) << "Failed to open file " << filepath << ": " << std::strerror(errno);
             throw std::runtime_error("Failed to open " + filepath);
