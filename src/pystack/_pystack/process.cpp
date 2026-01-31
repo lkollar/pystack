@@ -65,10 +65,11 @@ parsePyVersionHex(uint64_t version, ParsedPyVersion& parsed)
     } else if (level == 0xC) {
         level_str = "rc";
     } else if (level == 0xF) {
-        level_str = "";
+        level_str = nullptr;
     }
 
-    if (major < 2 || major > 3 || level_str == nullptr || (level == 0xF && count != 0)) {
+    if (major < 2 || major > 3 || (level != 0xF && level_str == nullptr) || (level == 0xF && count != 0))
+    {
         return false;  // Doesn't look valid.
     }
 
