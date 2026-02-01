@@ -523,8 +523,9 @@ def test_get_thread_name_handles_missing_thread():
     proc.wait()
     invalid_tid = 12345
 
-    with pytest.raises(OSError):
-        _pystack.get_thread_name(invalid_pid, invalid_tid)
+    thread_name = _pystack.get_thread_name(invalid_pid, invalid_tid)
+
+    assert thread_name == ""
 
 
 def test_get_executable_path_raises_oserror():
